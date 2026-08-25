@@ -146,52 +146,106 @@
     filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.2));
 }
 
+/* Mode Badge: 3D ULTRA */
 .topo-badge-3d {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    padding: 2.5px 8px;
+    padding: 3px 9px 3px 8px;
     font-size: 10px;
-    font-weight: 700;
+    font-weight: 800;
     letter-spacing: 0.8px;
     text-transform: uppercase;
     color: #ffffff;
-    background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
-    border-radius: 12px;
-    box-shadow: 0 2px 5px rgba(2, 132, 199, 0.35);
+    background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #d946ef 100%);
+    border-radius: 14px;
+    box-shadow: 0 2px 8px rgba(124, 58, 237, 0.45), inset 0 1px 1px rgba(255, 255, 255, 0.6);
     line-height: 1;
     user-select: none;
     margin-left: 6px;
-    border: 1px solid rgba(255, 255, 255, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.45);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+    position: relative;
+    overflow: hidden;
+    animation: topoUltraPulse 3s infinite ease-in-out;
 }
 
+.topo-badge-3d::after {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -60%;
+    width: 40%;
+    height: 200%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+    transform: rotate(25deg);
+    animation: topoShimmerSweep 4s infinite cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Mode Badge: 2D PREMIUM */
 .topo-badge-2d {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    padding: 2.5px 8px;
+    padding: 3px 9px 3px 8px;
     font-size: 10px;
-    font-weight: 700;
+    font-weight: 800;
     letter-spacing: 0.8px;
     text-transform: uppercase;
     color: #ffffff;
-    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-    border-radius: 12px;
-    box-shadow: 0 2px 5px rgba(16, 185, 129, 0.35);
+    background: linear-gradient(135deg, #059669 0%, #10b981 50%, #06b6d4 100%);
+    border-radius: 14px;
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.45), inset 0 1px 1px rgba(255, 255, 255, 0.6);
     line-height: 1;
     user-select: none;
     margin-left: 6px;
-    border: 1px solid rgba(255, 255, 255, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.45);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+    position: relative;
+    overflow: hidden;
+    animation: topoPremiumPulse 3s infinite ease-in-out;
 }
 
-@keyframes topoShimmer {
+.topo-badge-2d::after {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -60%;
+    width: 40%;
+    height: 200%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+    transform: rotate(25deg);
+    animation: topoShimmerSweep 4s infinite cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes topoUltraPulse {
     0%, 100% {
-        box-shadow: 0 2px 5px rgba(217, 119, 6, 0.35);
+        box-shadow: 0 2px 8px rgba(124, 58, 237, 0.45), inset 0 1px 1px rgba(255, 255, 255, 0.6);
         filter: brightness(1);
     }
     50% {
-        box-shadow: 0 3px 8px rgba(245, 158, 11, 0.6);
+        box-shadow: 0 3px 14px rgba(217, 70, 239, 0.7), inset 0 1px 2px rgba(255, 255, 255, 0.85);
+        filter: brightness(1.15);
+    }
+}
+
+@keyframes topoPremiumPulse {
+    0%, 100% {
+        box-shadow: 0 2px 8px rgba(16, 185, 129, 0.45), inset 0 1px 1px rgba(255, 255, 255, 0.6);
+        filter: brightness(1);
+    }
+    50% {
+        box-shadow: 0 3px 12px rgba(6, 182, 212, 0.65), inset 0 1px 2px rgba(255, 255, 255, 0.85);
         filter: brightness(1.12);
+    }
+}
+
+@keyframes topoShimmerSweep {
+    0% {
+        left: -80%;
+    }
+    30%, 100% {
+        left: 140%;
     }
 }
 

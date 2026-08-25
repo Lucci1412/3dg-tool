@@ -13,6 +13,11 @@
         // console.log('[Bridge3D]', ...args);
     }
 
+    // ===== CESIUM LIB DETECTOR =====
+    function getCesium() {
+        return window.Cesium || null;
+    }
+
     // ===== 3D ENGINE / VIEWER DETECTOR =====
     function find3dViewer() {
         if (window.viewer && (window.viewer.scene || window.viewer.camera)) {
@@ -21,53 +26,185 @@
         if (window.__cesiumViewer && (window.__cesiumViewer.scene || window.__cesiumViewer.camera)) {
             return window.__cesiumViewer;
         }
+        if (window.cesiumViewer && (window.cesiumViewer.scene || window.cesiumViewer.camera)) {
+            return window.cesiumViewer;
+        }
 
-        const canvas3d = document.querySelector('canvas.cesium-widget') || 
-                         document.querySelector('div.cesium-viewer') ||
-                         document.querySelector('.cesium-widget') ||
-                         document.querySelector('canvas[data-engine="three.js"]') ||
-                         document.querySelector('canvas');
+        // 1. Quét từ tất cả canvas trên trang
+        const allCanvases = Array.from(document.querySelectorAll('canvas'));
+        for (const canvas3d of allCanvases) {
+            if (canvas3d.id === 'topo-3d-area-draw-canvas' || canvas3d.id === 'topo-3d-line-highlight-canvas' || canvas3d.id === 'topo-line-highlight-canvas') continue;
+            if (canvas3d.viewer && (canvas3d.viewer.scene || canvas3d.viewer.camera)) return canvas3d.viewer;
+            if (canvas3d.parentElement?.viewer && (canvas3d.parentElement.viewer.scene || canvas3d.parentElement.viewer.camera)) return canvas3d.parentElement.viewer;
+            if (canvas3d._cesium && canvas3d._cesium.viewer) return canvas3d._cesium.viewer;
+            if (canvas3d.__cesiumWidget && canvas3d.__cesiumWidget.scene) return canvas3d.__cesiumWidget;
+        }
 
-        if (!canvas3d) return null;
+        // 2. Quét từ React Fiber của toàn bộ DOM elements
+        const allElements = Array.from(document.querySelectorAll('*'));
+        for (const el of allElements) {
+            if (el.viewer && (el.viewer.scene || el.viewer.camera)) return el.viewer;
+            if (el.cesiumViewer && (el.cesiumViewer.scene || el.cesiumViewer.camera)) return el.cesiumViewer;
 
-        if (canvas3d.viewer) return canvas3d.viewer;
-        if (canvas3d.parentElement?.viewer) return canvas3d.parentElement.viewer;
-
-        let el = canvas3d.parentElement;
-        while (el && el !== document.body) {
             const key = Object.keys(el).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactContainer'));
-            if (key) {
-                let node = el[key];
-                for (let d = 0; d < 250 && node; d++) {
-                    try {
-                        const props = node.memoizedProps;
-                        const state = node.memoizedState;
-                        const stateNode = node.stateNode;
+            if (!key || !el[key]) continue;
 
-                        if (props?.viewer?.scene || props?.viewer?.camera) return props.viewer;
-                        if (props?.scene?.camera) return props;
-                        if (stateNode?.viewer?.scene) return stateNode.viewer;
-                        if (stateNode?.scene?.camera) return stateNode;
+            let node = el[key];
+            for (let d = 0; d < 100 && node; d++) {
+                try {
+                    const props = node.memoizedProps;
+                    const state = node.memoizedState;
+                    const stateNode = node.stateNode;
 
-                        let s = state;
-                        while (s) {
-                            if (s.memoizedState?.current) {
-                                const cur = s.memoizedState.current;
-                                if (cur?.scene || cur?.camera || cur?.entities) return cur;
-                            }
-                            if (s.memoizedState?.viewer) return s.memoizedState.viewer;
-                            if (s.memoizedState?.scene) return s.memoizedState;
-                            s = s.next;
+                    if (props?.viewer?.scene || props?.viewer?.camera) return props.viewer;
+                    if (props?.cesiumViewer?.scene || props?.cesiumViewer?.camera) return props.cesiumViewer;
+                    if (props?.scene?.camera) return props;
+                    if (stateNode?.viewer?.scene) return stateNode.viewer;
+                    if (stateNode?.scene?.camera) return stateNode;
+                    if (stateNode?.cesiumWidget?.scene) return stateNode.cesiumWidget;
+
+                    let s = state;
+                    while (s) {
+                        const cur = s.memoizedState?.current || s.memoizedState;
+                        if (cur) {
+                            if (cur.scene || cur.camera || cur.entities) return cur;
+                            if (cur.viewer?.scene || cur.viewer?.camera) return cur.viewer;
+                            if (cur.cesiumViewer?.scene || cur.cesiumViewer?.camera) return cur.cesiumViewer;
+                            if (cur.cesiumWidget?.scene) return cur.cesiumWidget;
                         }
-                    } catch (e) {}
-                    node = node.return;
-                }
-                break;
+                        s = s.next;
+                    }
+                } catch (e) {}
+                node = node.return;
             }
-            el = el.parentElement;
         }
 
         return null;
+    }
+
+    // ===== CESIUM HELPER RESOLVER =====
+    function getCesium() {
+        if (typeof window.Cesium !== 'undefined' && window.Cesium) return window.Cesium;
+        const viewer = window.__topo3dViewer || find3dViewer();
+        if (viewer) {
+            if (viewer.constructor?.Cesium) return viewer.constructor.Cesium;
+            if (viewer.cesiumWidget?.constructor?.Cesium) return viewer.cesiumWidget.constructor.Cesium;
+        }
+        return null;
+    }
+
+    // ===== UPDATE CESIUM 3D GROUP COLOR (BATCHED PRIMITIVES + LIVE ENTITIES) =====
+    function updateCesium3dGroupColor(viewer, gId, colorHex) {
+        if (!viewer) viewer = window.__topo3dViewer || find3dViewer();
+        if (!viewer) return false;
+        const scene = viewer.scene || viewer;
+        const Cesium = getCesium();
+        let updated = false;
+
+        // 1. Phân giải mã màu sang mảng byte RGBA [0..255]
+        let r = 255, g = 0, b = 0, a = 255;
+        if (Cesium && Cesium.Color && Cesium.Color.fromCssColorString) {
+            try {
+                const c = Cesium.Color.fromCssColorString(colorHex);
+                r = Math.round(c.red * 255);
+                g = Math.round(c.green * 255);
+                b = Math.round(c.blue * 255);
+                a = Math.round((c.alpha !== undefined ? c.alpha : 1.0) * 255);
+            } catch(e) {}
+        } else if (colorHex && colorHex.startsWith('#')) {
+            const hex = colorHex.replace('#', '');
+            if (hex.length === 6) {
+                r = parseInt(hex.slice(0, 2), 16) || 0;
+                g = parseInt(hex.slice(2, 4), 16) || 0;
+                b = parseInt(hex.slice(4, 6), 16) || 0;
+            } else if (hex.length === 3) {
+                r = parseInt(hex[0] + hex[0], 16) || 0;
+                g = parseInt(hex[1] + hex[1], 16) || 0;
+                b = parseInt(hex[2] + hex[2], 16) || 0;
+            }
+        } else if (colorHex && colorHex.startsWith('rgb')) {
+            const nums = colorHex.match(/\d+/g);
+            if (nums && nums.length >= 3) {
+                r = parseInt(nums[0], 10);
+                g = parseInt(nums[1], 10);
+                b = parseInt(nums[2], 10);
+                if (nums.length >= 4) a = parseInt(nums[3], 10);
+            }
+        }
+        const rgbaBytes = [r, g, b, a];
+
+        // 2. Cập nhật qua Cesium Batched Primitives (getGeometryInstanceAttributes)
+        //    (3DG trên 3D Mesh vẽ toàn bộ các nét CAD gom chung vào Cesium Primitive)
+        function scanPrimitive(p) {
+            if (!p) return;
+            if (p._primitives && Array.isArray(p._primitives)) {
+                p._primitives.forEach(scanPrimitive);
+            }
+            if (typeof p.getGeometryInstanceAttributes === 'function') {
+                try {
+                    const attr = p.getGeometryInstanceAttributes(gId) ||
+                                 p.getGeometryInstanceAttributes(`group-${gId}`) ||
+                                 p.getGeometryInstanceAttributes(`polyline-${gId}`);
+                    if (attr && attr.color) {
+                        attr.color = rgbaBytes;
+                        updated = true;
+                    }
+                } catch (e) {}
+            }
+        }
+
+        if (scene.primitives) {
+            for (let i = 0; i < scene.primitives.length; i++) {
+                scanPrimitive(scene.primitives.get(i));
+            }
+        }
+        if (scene.groundPrimitives) {
+            for (let i = 0; i < scene.groundPrimitives.length; i++) {
+                scanPrimitive(scene.groundPrimitives.get(i));
+            }
+        }
+
+        // 3. Cập nhật qua Cesium Entities (nếu nét vẽ dạng Entity)
+        if (viewer.entities) {
+            try {
+                const cesiumColor = Cesium?.Color ? Cesium.Color.fromCssColorString(colorHex) : colorHex;
+                const setPolyMaterial = (polyline) => {
+                    if (!polyline) return;
+                    try {
+                        if (Cesium?.ColorMaterialProperty) {
+                            polyline.material = new Cesium.ColorMaterialProperty(cesiumColor);
+                        } else {
+                            polyline.material = cesiumColor;
+                        }
+                        updated = true;
+                    } catch (mErr) {
+                        polyline.material = cesiumColor;
+                        updated = true;
+                    }
+                };
+
+                const ent = viewer.entities.getById(gId) || 
+                            viewer.entities.getById(`group-${gId}`) || 
+                            viewer.entities.getById(`polyline-${gId}`) ||
+                            viewer.entities.getById(`backup-line-${gId}`);
+                if (ent && ent.polyline) {
+                    setPolyMaterial(ent.polyline);
+                } else {
+                    viewer.entities.values.forEach(e => {
+                        if (e.polyline && (e.id === gId || String(e.id).includes(gId))) {
+                            setPolyMaterial(e.polyline);
+                        }
+                    });
+                }
+            } catch (entErr) {}
+        }
+
+        // 4. Buộc Cesium re-render ngay lập tức để người dùng thấy màu mới
+        if (updated && typeof scene.requestRender === 'function') {
+            scene.requestRender();
+        }
+
+        return updated;
     }
 
     // ===== PROJECT 3D GEO COORD (LNG, LAT, HEIGHT) TO 2D SCREEN PIXELS =====
@@ -78,9 +215,25 @@
         const scene = viewer.scene || viewer;
         if (!scene) return null;
 
-        const ellipsoid = scene.globe?.ellipsoid || scene.mapProjection?.ellipsoid;
-        if (ellipsoid && typeof scene.cartesianToCanvasCoordinates === 'function') {
+        const Cesium = window.Cesium || getCesium();
+
+        if (Cesium?.Cartesian3?.fromDegrees && Cesium?.SceneTransforms) {
             try {
+                const cart = Cesium.Cartesian3.fromDegrees(lng, lat, height || 0);
+                const transformFn = Cesium.SceneTransforms.worldToWindowCoordinates ||
+                    Cesium.SceneTransforms.wgs84ToWindowCoordinates;
+                if (typeof transformFn === 'function') {
+                    const pos = transformFn.call(Cesium.SceneTransforms, scene, cart);
+                    if (pos && typeof pos.x === 'number') {
+                        return [pos.x, pos.y];
+                    }
+                }
+            } catch (e) {}
+        }
+
+        try {
+            const ellipsoid = scene.globe?.ellipsoid || scene.mapProjection?.ellipsoid;
+            if (ellipsoid?.cartographicToCartesian) {
                 const radLng = (lng * Math.PI) / 180;
                 const radLat = (lat * Math.PI) / 180;
                 const cartesian = ellipsoid.cartographicToCartesian({
@@ -89,23 +242,19 @@
                     height: height || 0
                 });
                 if (cartesian) {
-                    const winPos = scene.cartesianToCanvasCoordinates(cartesian);
-                    if (winPos && typeof winPos.x === 'number') {
-                        return [winPos.x, winPos.y];
+                    const transformFn = Cesium?.SceneTransforms?.worldToWindowCoordinates ||
+                        Cesium?.SceneTransforms?.wgs84ToWindowCoordinates;
+                    if (typeof transformFn === 'function') {
+                        const pos = transformFn.call(Cesium.SceneTransforms, scene, cartesian);
+                        if (pos && typeof pos.x === 'number') return [pos.x, pos.y];
+                    }
+                    if (scene.camera?.worldToWindowCoordinates) {
+                        const pos = scene.camera.worldToWindowCoordinates(cartesian);
+                        if (pos && typeof pos.x === 'number') return [pos.x, pos.y];
                     }
                 }
-            } catch (e) {}
-        }
-
-        if (window.Cesium && window.Cesium.Cartesian3 && window.Cesium.SceneTransforms) {
-            try {
-                const cart = window.Cesium.Cartesian3.fromDegrees(lng, lat, height || 0);
-                const pos = window.Cesium.SceneTransforms.wgs84ToWindowCoordinates(scene, cart);
-                if (pos && typeof pos.x === 'number') {
-                    return [pos.x, pos.y];
-                }
-            } catch (e) {}
-        }
+            }
+        } catch (e) {}
 
         return null;
     }
@@ -118,57 +267,75 @@
         const scene = viewer.scene || viewer;
         const camera = viewer.camera || scene?.camera;
         const ellipsoid = scene?.globe?.ellipsoid || scene?.mapProjection?.ellipsoid;
+        const Cesium = getCesium();
 
         if (scene) {
             try {
-                const windowCoord = (window.Cesium && window.Cesium.Cartesian2) ? 
-                                    new window.Cesium.Cartesian2(screenX, screenY) : 
+                const windowCoord = (Cesium && Cesium.Cartesian2) ? 
+                                    new Cesium.Cartesian2(screenX, screenY) : 
                                     { x: screenX, y: screenY };
 
                 // 1. Ưu tiên pickPosition trực tiếp trên 3D Mesh / 3D Tiles (độ cao chính xác nhất)
                 if (typeof scene.pickPosition === 'function') {
-                    const cartesian = scene.pickPosition(windowCoord);
-                    if (cartesian && window.Cesium && window.Cesium.Cartographic) {
-                        const carto = window.Cesium.Cartographic.fromCartesian(cartesian);
-                        if (carto && typeof carto.latitude === 'number') {
-                            return [
-                                (carto.longitude * 180) / Math.PI,
-                                (carto.latitude * 180) / Math.PI,
-                                carto.height || 0
-                            ];
+                    try {
+                        const cartesian = scene.pickPosition(windowCoord);
+                        if (cartesian) {
+                            if (Cesium?.Cartographic) {
+                                const carto = Cesium.Cartographic.fromCartesian(cartesian);
+                                if (carto && typeof carto.latitude === 'number') {
+                                    return [
+                                        (carto.longitude * 180) / Math.PI,
+                                        (carto.latitude * 180) / Math.PI,
+                                        carto.height || 0
+                                    ];
+                                }
+                            } else if (ellipsoid?.cartesianToCartographic) {
+                                const carto = ellipsoid.cartesianToCartographic(cartesian);
+                                if (carto) {
+                                    return [
+                                        (carto.longitude * 180) / Math.PI,
+                                        (carto.latitude * 180) / Math.PI,
+                                        carto.height || 0
+                                    ];
+                                }
+                            }
                         }
-                    }
+                    } catch (pErr) {}
                 }
 
                 // 2. Fallback: Ray pick trên Globe Surface
                 if (camera && typeof camera.getPickRay === 'function' && scene.globe && typeof scene.globe.pick === 'function') {
-                    const ray = camera.getPickRay(windowCoord);
-                    const cartesian = scene.globe.pick(ray, scene);
-                    if (cartesian && ellipsoid) {
-                        const carto = ellipsoid.cartesianToCartographic(cartesian);
-                        if (carto) {
-                            return [
-                                (carto.longitude * 180) / Math.PI,
-                                (carto.latitude * 180) / Math.PI,
-                                carto.height || 0
-                            ];
+                    try {
+                        const ray = camera.getPickRay(windowCoord);
+                        const cartesian = scene.globe.pick(ray, scene);
+                        if (cartesian && ellipsoid) {
+                            const carto = ellipsoid.cartesianToCartographic(cartesian);
+                            if (carto) {
+                                return [
+                                    (carto.longitude * 180) / Math.PI,
+                                    (carto.latitude * 180) / Math.PI,
+                                    carto.height || 0
+                                ];
+                            }
                         }
-                    }
+                    } catch (rErr) {}
                 }
 
                 // 3. Fallback: Pick Ellipsoid
                 if (camera && typeof camera.pickEllipsoid === 'function' && ellipsoid) {
-                    const cartesian = camera.pickEllipsoid(windowCoord);
-                    if (cartesian) {
-                        const carto = ellipsoid.cartesianToCartographic(cartesian);
-                        if (carto) {
-                            return [
-                                (carto.longitude * 180) / Math.PI,
-                                (carto.latitude * 180) / Math.PI,
-                                carto.height || 0
-                            ];
+                    try {
+                        const cartesian = camera.pickEllipsoid(windowCoord, ellipsoid);
+                        if (cartesian) {
+                            const carto = ellipsoid.cartesianToCartographic(cartesian);
+                            if (carto) {
+                                return [
+                                    (carto.longitude * 180) / Math.PI,
+                                    (carto.latitude * 180) / Math.PI,
+                                    carto.height || 0
+                                ];
+                            }
                         }
-                    }
+                    } catch (eErr) {}
                 }
             } catch (e) {}
         }
@@ -278,25 +445,10 @@
                             } catch (nErr) {}
                         }
 
-                        // 4. Cập nhật trực tiếp màu hiển thị trên Cesium 3D Scene
+                        // 4. Cập nhật trực tiếp màu hiển thị trên Cesium 3D Scene (Batched Primitives + Entities)
                         try {
                             const viewer = window.__topo3dViewer || find3dViewer();
-                            if (viewer && viewer.entities && window.Cesium) {
-                                const cesiumColor = window.Cesium.Color.fromCssColorString(color);
-                                const ent = viewer.entities.getById(gId) || 
-                                            viewer.entities.getById(`group-${gId}`) || 
-                                            viewer.entities.getById(`polyline-${gId}`) ||
-                                            viewer.entities.getById(`backup-line-${gId}`);
-                                if (ent && ent.polyline) {
-                                    ent.polyline.material = cesiumColor;
-                                } else {
-                                    viewer.entities.values.forEach(e => {
-                                        if (e.polyline && (e.id === gId || e.name === rawGroup.name || String(e.id).includes(gId))) {
-                                            e.polyline.material = cesiumColor;
-                                        }
-                                    });
-                                }
-                            }
+                            updateCesium3dGroupColor(viewer, gId, color);
                         } catch (cesiumErr) {}
                     },
                     ...callbacks
@@ -342,18 +494,42 @@
                 if (typeof props.setGroupColor === 'function') {
                     window.__topoNativeSetGroupColor = props.setGroupColor;
                 }
-                if (Array.isArray(props.groups)) {
-                    props.groups.forEach(g => registerGroup(g, props));
+                if (typeof props.onSetColor === 'function') {
+                    window.__topoNativeOnSetColor = props.onSetColor;
                 }
+                if (typeof props.changeGroupColor === 'function') {
+                    window.__topoNativeChangeGroupColor = props.changeGroupColor;
+                }
+
+                // 1. Quét các mảng dữ liệu nét vẽ
+                const groupArrays = [
+                    props.groups,
+                    props.items,
+                    props.list,
+                    props.strokes,
+                    props.polylines,
+                    props.lines,
+                    props.data,
+                    props.vectors,
+                    props.features,
+                    props.drawings,
+                    props.cadData,
+                    props.layers
+                ];
+                groupArrays.forEach(arr => {
+                    if (Array.isArray(arr)) {
+                        arr.forEach(g => {
+                            if (!g) return;
+                            if (g.group) registerGroup(g.group, props);
+                            else if (g.id || g.points || g.coordinates) registerGroup(g, props);
+                        });
+                    }
+                });
+
                 if (props.group && props.group.id) {
                     registerGroup(props.group, props);
                 }
-                if (Array.isArray(props.items)) {
-                    props.items.forEach(it => {
-                        if (it?.group) registerGroup(it.group, props);
-                        else if (it?.id && (it?.points || it?.coordinates)) registerGroup(it, props);
-                    });
-                }
+
                 // Bắt nét vẽ dở / draft đang vẽ chưa lưu trong props
                 if (Array.isArray(props.draftPoints) && props.draftPoints.length > 0) {
                     registerGroup({
@@ -371,9 +547,10 @@
                 const ms = s.memoizedState;
                 if (Array.isArray(ms)) {
                     ms.forEach(entry => {
-                        if (entry && entry.kind === 'group' && entry.g) {
+                        if (!entry) return;
+                        if (entry.kind === 'group' && entry.g) {
                             registerGroup(entry.g);
-                        } else if (entry && entry.kind === 'point' && entry.g && entry.p) {
+                        } else if (entry.kind === 'point' && entry.g && entry.p) {
                             registerGroup(entry.g);
                             if (!pointsByGroupId.has(entry.g.id)) {
                                 pointsByGroupId.set(entry.g.id, []);
@@ -382,13 +559,19 @@
                             if (!ptList.some(p => p.id === entry.p.id)) {
                                 ptList.push(entry.p);
                             }
-                        } else if (entry && entry.id && (entry.points || entry.coordinates)) {
+                        } else if (entry.id && (entry.points || entry.coordinates)) {
                             registerGroup(entry);
                         }
                     });
                 } else if (ms && typeof ms === 'object') {
                     if (Array.isArray(ms.groups)) {
                         ms.groups.forEach(g => registerGroup(g));
+                    }
+                    if (Array.isArray(ms.items)) {
+                        ms.items.forEach(it => {
+                            if (it?.group) registerGroup(it.group);
+                            else if (it?.id && (it?.points || it?.coordinates)) registerGroup(it);
+                        });
                     }
                     if (ms.group && ms.group.id) {
                         registerGroup(ms.group);
@@ -408,10 +591,12 @@
         }
 
         // 1. Quét từ Root Container (Duyệt toàn bộ Virtual DOM Tree)
-        const rootEl = document.getElementById('root') || document.body;
+        const rootEl = document.getElementById('root') || document.getElementById('app') || document.body;
         const rootKey = Object.keys(rootEl).find(k => k.startsWith('__reactContainer') || k.startsWith('__reactFiber'));
         if (rootKey && rootEl[rootKey]) {
-            const stack = [rootEl[rootKey]];
+            const rootNode = rootEl[rootKey];
+            const startFiber = rootNode.current || rootNode;
+            const stack = [startFiber];
             const visited = new Set();
             while (stack.length > 0) {
                 const node = stack.pop();
@@ -423,14 +608,16 @@
             }
         }
 
-        // 2. Quét bổ sung từ mọi DOM elements trên trang
+        // 2. Quét bổ sung từ mọi DOM elements trên trang (quét cả nhánh child/sibling)
         const allElements = Array.from(document.querySelectorAll('*'));
         for (const el of allElements) {
-            const key = Object.keys(el).find(k => k.startsWith('__reactFiber'));
+            const key = Object.keys(el).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'));
             if (!key || !el[key]) continue;
             let node = el[key];
             for (let d = 0; d < 50 && node; d++) {
                 inspectFiberNode(node);
+                if (node.child) inspectFiberNode(node.child);
+                if (node.sibling) inspectFiberNode(node.sibling);
                 node = node.return;
             }
         }
@@ -445,14 +632,16 @@
 
         // 4. Quét bổ sung từ Cesium Viewer Live Entities (Trường hợp chưa lưu vào React state / UI)
         const viewer = window.__topo3dViewer || find3dViewer();
-        if (viewer && viewer.entities && window.Cesium) {
+        const Cesium = getCesium();
+        if (viewer && viewer.entities && Cesium) {
             try {
                 let entIdx = 0;
                 viewer.entities.values.forEach(entity => {
                     if (entity.id && String(entity.id).startsWith('backup-line-')) return;
                     if (entity.polyline && entity.polyline.positions) {
+                        const julianNow = Cesium.JulianDate ? Cesium.JulianDate.now() : null;
                         const positions = entity.polyline.positions.getValue ? 
-                                          entity.polyline.positions.getValue(window.Cesium.JulianDate.now()) : 
+                                          entity.polyline.positions.getValue(julianNow) : 
                                           entity.polyline.positions;
                         if (Array.isArray(positions) && positions.length >= 2) {
                             entIdx++;
@@ -460,7 +649,7 @@
                             if (!groupsMap.has(entId)) {
                                 const pts = positions.map((pos, pIdx) => {
                                     if (pos && typeof pos.x === 'number') {
-                                        const carto = window.Cesium.Cartographic.fromCartesian(pos);
+                                        const carto = Cesium.Cartographic ? Cesium.Cartographic.fromCartesian(pos) : null;
                                         if (carto) {
                                             return {
                                                 id: `pt-${entId}-${pIdx}`,
@@ -495,14 +684,16 @@
     }
 
     // ===== FLY CAMERA TO 3D COORD =====
-    function flyTo3DCoord(lng, lat, height = 150) {
+    function flyTo3DCoord(lng, lat, height = 120) {
         const viewer = window.__topo3dViewer || find3dViewer();
+        const Cesium = window.Cesium || getCesium();
         if (viewer && viewer.camera && typeof viewer.camera.flyTo === 'function') {
             try {
-                if (window.Cesium && window.Cesium.Cartesian3) {
+                if (Cesium && Cesium.Cartesian3) {
+                    const targetHeight = (typeof height === 'number' && height > 0) ? (height + 40) : 150;
                     viewer.camera.flyTo({
-                        destination: window.Cesium.Cartesian3.fromDegrees(lng, lat, (height || 100) + 50),
-                        duration: 1.0
+                        destination: Cesium.Cartesian3.fromDegrees(lng, lat, targetHeight),
+                        duration: 0.8
                     });
                     return true;
                 }
@@ -525,12 +716,193 @@
         return false;
     }
 
+    // ===== 3D CANVAS OVERLAY FOR TOPOLOGY ERROR MARKERS (ĐỐM ĐỎ ĐẦU MÚT HỞ) =====
+    let stored3dErrors = [];
+    let active3dErrorId = null;
+    let is3dPostRenderAttached = false;
+    let postRenderListener = null;
+
+    function getOrCreate3DHighlightCanvas() {
+        // Tìm viewport hoặc canvas container của Cesium
+        const container = document.querySelector('.cesium-widget') ||
+            document.querySelector('.cesium-viewer') ||
+            document.querySelector('canvas')?.parentElement ||
+            document.body;
+        if (!container) return null;
+
+        let canvas = document.getElementById('topo-3d-line-highlight-canvas');
+        if (canvas && container.contains(canvas)) {
+            if (canvas.width !== container.clientWidth || canvas.height !== container.clientHeight) {
+                canvas.width = container.clientWidth || window.innerWidth;
+                canvas.height = container.clientHeight || window.innerHeight;
+            }
+            return canvas;
+        }
+
+        canvas = document.createElement('canvas');
+        canvas.id = 'topo-3d-line-highlight-canvas';
+        canvas.style.cssText = 'position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:9996; overflow:visible;';
+        canvas.width = container.clientWidth || window.innerWidth;
+        canvas.height = container.clientHeight || window.innerHeight;
+        container.appendChild(canvas);
+        return canvas;
+    }
+
+    function draw3DHighlightsCanvas() {
+        const canvas = getOrCreate3DHighlightCanvas();
+        if (!canvas) return;
+
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        if (!stored3dErrors || stored3dErrors.length === 0) return;
+
+        // Vẽ từng điểm lỗi lên canvas dựa theo toạ độ 3D đã chiếu về màn hình
+        stored3dErrors.forEach(err => {
+            if (!err.coord || !Array.isArray(err.coord)) return;
+            const [lng, lat, height] = err.coord;
+
+            let sp = project3dToScreen(lng, lat, height || 0);
+            if (!sp) sp = project3dToScreen(lng, lat, 0);
+            if (!sp) return;
+
+            const [px, py] = sp;
+            // Bỏ qua nếu nằm ngoài màn hình hiển thị
+            if (px < -40 || px > canvas.width + 40 || py < -40 || py > canvas.height + 40) return;
+
+            const isActive = (err.id === active3dErrorId);
+
+            ctx.save();
+
+            if (err.type === 'duplicate') {
+                // ĐỐM CAM/VÀNG CHO LỖI TRÙNG NÉT
+                ctx.beginPath();
+                ctx.arc(px, py, isActive ? 14 : 9, 0, Math.PI * 2);
+                ctx.fillStyle = isActive ? 'rgba(234, 88, 12, 0.6)' : 'rgba(245, 158, 11, 0.38)';
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.arc(px, py, isActive ? 7 : 5, 0, Math.PI * 2);
+                ctx.fillStyle = isActive ? '#ffffff' : '#fbbf24';
+                ctx.fill();
+                ctx.strokeStyle = '#ea580c';
+                ctx.lineWidth = isActive ? 2.5 : 1.5;
+                ctx.stroke();
+            } else {
+                // ĐỐM ĐỎ CHO ĐẦU MÚT HỞ / CHƯA KHÉP THỬA (GIỐNG 100% 2D)
+                // 1. Vòng hào quang đỏ mờ (Outer glow halo)
+                ctx.beginPath();
+                ctx.arc(px, py, isActive ? 16 : 10, 0, Math.PI * 2);
+                ctx.fillStyle = isActive ? 'rgba(255, 0, 68, 0.45)' : 'rgba(255, 17, 0, 0.32)';
+                ctx.fill();
+
+                // 2. Điểm tròn đỏ tươi trung tâm
+                ctx.beginPath();
+                ctx.arc(px, py, isActive ? 8 : 5.5, 0, Math.PI * 2);
+                ctx.fillStyle = '#ff1100';
+                ctx.fill();
+
+                // 3. Viền trắng nổi bật trên nền 3D
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = isActive ? 2.5 : 1.8;
+                ctx.stroke();
+
+                // 4. Nếu đang được chọn (Active): vẽ thêm tâm trắng
+                if (isActive) {
+                    ctx.beginPath();
+                    ctx.arc(px, py, 3, 0, Math.PI * 2);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fill();
+                }
+            }
+
+            ctx.restore();
+        });
+    }
+
+    function attach3dRenderListener() {
+        const viewer = window.__topo3dViewer || find3dViewer();
+        const scene = viewer?.scene || viewer;
+        if (!scene || is3dPostRenderAttached) return;
+
+        if (scene.postRender && typeof scene.postRender.addEventListener === 'function') {
+            postRenderListener = () => {
+                draw3DHighlightsCanvas();
+            };
+            scene.postRender.addEventListener(postRenderListener);
+            is3dPostRenderAttached = true;
+        }
+
+        window.addEventListener('resize', draw3DHighlightsCanvas);
+    }
+
+    function detach3dRenderListener() {
+        const viewer = window.__topo3dViewer || find3dViewer();
+        const scene = viewer?.scene || viewer;
+        if (scene && scene.postRender && postRenderListener) {
+            try {
+                scene.postRender.removeEventListener(postRenderListener);
+            } catch(e) {}
+        }
+        is3dPostRenderAttached = false;
+        postRenderListener = null;
+        window.removeEventListener('resize', draw3DHighlightsCanvas);
+    }
+
+    function render3dErrorOverlays(errors) {
+        clear3dErrorOverlays();
+        if (!errors || errors.length === 0) return;
+
+        stored3dErrors = [...errors];
+        attach3dRenderListener();
+        draw3DHighlightsCanvas();
+
+        const viewer = window.__topo3dViewer || find3dViewer();
+        const scene = viewer?.scene || viewer;
+        if (scene && typeof scene.requestRender === 'function') {
+            scene.requestRender();
+        }
+    }
+
+    function clear3dErrorOverlays() {
+        stored3dErrors = [];
+        active3dErrorId = null;
+        const canvas = document.getElementById('topo-3d-line-highlight-canvas');
+        if (canvas) {
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+        detach3dRenderListener();
+    }
+
+    function toggle3dErrorHighlight(errorId, forceState) {
+        if (!errorId) return;
+        if (forceState === true) {
+            active3dErrorId = errorId;
+        } else if (forceState === false) {
+            if (active3dErrorId === errorId) active3dErrorId = null;
+        } else {
+            active3dErrorId = (active3dErrorId === errorId) ? null : errorId;
+        }
+        draw3DHighlightsCanvas();
+
+        const viewer = window.__topo3dViewer || find3dViewer();
+        const scene = viewer?.scene || viewer;
+        if (scene && typeof scene.requestRender === 'function') {
+            scene.requestRender();
+        }
+    }
+
     // Global APIs for 3D Bridge
     window.__topoFind3dViewer = find3dViewer;
     window.__topoCollect3dGroups = collectAll3dGroups;
     window.__topoFlyTo3DCoord = flyTo3DCoord;
     window.__topoProject3dToScreen = project3dToScreen;
     window.__topoUnprojectScreenToGeo = unprojectScreenToGeo;
+    window.__topoUpdateCesium3dGroupColor = updateCesium3dGroupColor;
+    window.__topoRender3DOverlays = render3dErrorOverlays;
+    window.__topoClear3DOverlays = clear3dErrorOverlays;
+    window.__topoToggle3DHighlight = toggle3dErrorHighlight;
 
     log('Bridge 3D Module Loaded');
 })();

@@ -193,7 +193,7 @@
         e.preventDefault();
         e.stopPropagation();
         if (drawnScreenPoints.length >= 3) {
-            const finishBtn = document.getElementById('topo-area-finish');
+            const finishBtn = document.getElementById('topo-btn-area-finish');
             if (finishBtn) {
                 finishBtn.click();
             } else {
@@ -204,12 +204,12 @@
 
     function onKeyDown(e) {
         if (e.key === 'Escape') {
-            const cancelBtn = document.getElementById('topo-area-cancel');
+            const cancelBtn = document.getElementById('topo-btn-area-cancel');
             if (cancelBtn) cancelBtn.click();
             else cancelAreaSelection();
         } else if (e.key === 'Enter') {
             if (drawnScreenPoints.length >= 3) {
-                const finishBtn = document.getElementById('topo-area-finish');
+                const finishBtn = document.getElementById('topo-btn-area-finish');
                 if (finishBtn) {
                     finishBtn.click();
                 } else {
@@ -404,32 +404,62 @@
             try { grp.color = colorHex; } catch(e) {}
             try { if (item.color) item.color = colorHex; } catch(e) {}
 
-            // 3. Cập nhật trực tiếp Polyline Entity trên Cesium 3D Canvas
-            if (viewer && viewer.entities && window.Cesium) {
+            // 3. Cập nhật trực tiếp Cesium 3D Canvas (Hỗ trợ Batched Primitives + Entities)
+            if (window.__topoUpdateCesium3dGroupColor) {
                 try {
-                    const cesiumColor = window.Cesium.Color.fromCssColorString(colorHex);
-                    const ent = viewer.entities.getById(gId) || 
-                                viewer.entities.getById(`group-${gId}`) || 
-                                viewer.entities.getById(`polyline-${gId}`) ||
-                                viewer.entities.getById(`backup-line-${gId}`);
-                    if (ent && ent.polyline) {
-                        ent.polyline.material = cesiumColor;
-                        success = true;
-                    } else {
-                        viewer.entities.values.forEach(e => {
-                            if (e.polyline && (e.id === gId || e.name === grp.name || String(e.id).includes(gId))) {
-                                e.polyline.material = cesiumColor;
-                                success = true;
+                    const ok = window.__topoUpdateCesium3dGroupColor(viewer, gId, colorHex);
+                    if (ok) success = true;
+                } catch (uErr) {
+                    log(`[${idx}] Lỗi __topoUpdateCesium3dGroupColor:`, uErr);
+                }
+            } else {
+                const Cesium = (typeof window.Cesium !== 'undefined' && window.Cesium) || 
+                               (viewer?.constructor?.Cesium) || 
+                               (viewer?.cesiumWidget?.constructor?.Cesium);
+                if (viewer && viewer.entities && Cesium) {
+                    try {
+                        const cesiumColor = Cesium.Color ? Cesium.Color.fromCssColorString(colorHex) : colorHex;
+                        const setPolyMaterial = (polyline) => {
+                            if (!polyline) return;
+                            try {
+                                if (Cesium.ColorMaterialProperty) {
+                                    polyline.material = new Cesium.ColorMaterialProperty(cesiumColor);
+                                } else {
+                                    polyline.material = cesiumColor;
+                                }
+                            } catch (mErr) {
+                                polyline.material = cesiumColor;
                             }
-                        });
+                        };
+
+                        const ent = viewer.entities.getById(gId) || 
+                                    viewer.entities.getById(`group-${gId}`) || 
+                                    viewer.entities.getById(`polyline-${gId}`) ||
+                                    viewer.entities.getById(`backup-line-${gId}`);
+                        if (ent && ent.polyline) {
+                            setPolyMaterial(ent.polyline);
+                            success = true;
+                        } else {
+                            viewer.entities.values.forEach(e => {
+                                if (e.polyline && (e.id === gId || e.name === grp.name || String(e.id).includes(gId))) {
+                                    setPolyMaterial(e.polyline);
+                                    success = true;
+                                }
+                            });
+                        }
+                    } catch (cErr) {
+                        log(`[${idx}] Lỗi cập nhật Cesium Entity:`, cErr);
                     }
-                } catch (cErr) {
-                    log(`[${idx}] Lỗi cập nhật Cesium Entity:`, cErr);
                 }
             }
 
             if (success) appliedCount++;
         });
+
+        const scene = viewer?.scene || viewer;
+        if (scene && typeof scene.requestRender === 'function') {
+            scene.requestRender();
+        }
 
         log(`--- applyColor3D END: Đã áp dụng màu ${colorHex} (${landCode || ''}) cho ${appliedCount}/${targetItems.length} nhóm 3D ---`);
         

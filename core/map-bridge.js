@@ -770,12 +770,50 @@
         return results;
     }
 
+    function extractAndCallFiberOnRemove(parentFlex) {
+        if (!parentFlex) return false;
+        const card = parentFlex.closest('.border') || parentFlex.parentElement || parentFlex;
+        const elementsToTry = [parentFlex, card, card.parentElement].filter(Boolean);
+
+        for (const el of elementsToTry) {
+            const key = Object.keys(el).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'));
+            if (!key) continue;
+            let node = el[key];
+            for (let d = 0; d < 40 && node; d++) {
+                const props = node.memoizedProps;
+                if (props) {
+                    const gId = props.group?.id || props.item?.id || props.id;
+                    if (typeof props.onRemove === 'function') {
+                        try {
+                            props.onRemove(gId || props.group || props.item);
+                            return true;
+                        } catch(e) {}
+                    }
+                    if (typeof props.onDelete === 'function') {
+                        try {
+                            props.onDelete(gId || props.group || props.item);
+                            return true;
+                        } catch(e) {}
+                    }
+                    if (typeof props.deleteGroup === 'function') {
+                        try {
+                            props.deleteGroup(gId || props.group || props.item);
+                            return true;
+                        } catch(e) {}
+                    }
+                }
+                node = node.return;
+            }
+        }
+        return false;
+    }
+
     function triggerSilentNativeDelete(parentFlex) {
         const toolsBtn = parentFlex.querySelector('button[title="Công cụ nhóm"]') || parentFlex.querySelector('.ant-dropdown-trigger');
         if (!toolsBtn) return;
 
         const styleEl = document.createElement('style');
-        styleEl.textContent = '.ant-dropdown, .ant-dropdown-menu-root, .ant-popover { display: none !important; opacity: 0 !important; visibility: hidden !important; }';
+        styleEl.textContent = '.ant-dropdown, .ant-dropdown-menu-root, .ant-popover { opacity: 0 !important; pointer-events: auto !important; }';
         (document.head || document.documentElement).appendChild(styleEl);
 
         try {
@@ -785,8 +823,9 @@
                 for (const menu of dropdowns) {
                     const items = Array.from(menu.querySelectorAll('li, button, div, span, a'));
                     const deleteItem = items.find(el => {
-                        const text = (el.textContent || '').trim();
-                        return (text === 'Xóa' || text === 'Xóa nhóm' || text.includes('Xóa') || text.includes('Delete'));
+                        if (el.classList && el.classList.contains('ant-dropdown-menu-item-danger')) return true;
+                        const text = (el.textContent || '').trim().toLowerCase();
+                        return /^(xóa|xoá|delete|remove)/i.test(text) || /(xóa nhóm|xoá nhóm|delete group)/i.test(text);
                     });
                     if (deleteItem) {
                         deleteItem.click();
@@ -795,8 +834,8 @@
                 }
                 setTimeout(() => {
                     try { styleEl.remove(); } catch(e) {}
-                }, 120);
-            }, 25);
+                }, 150);
+            }, 30);
         } catch (e) {
             try { styleEl.remove(); } catch(err) {}
         }
@@ -808,15 +847,28 @@
         const cleanName = extractCleanTitle(rawTitle);
         const targetId = extractFeatureIdFromFiber(parentFlex);
 
-        // 1. Select the item on 3DG first by clicking title button
+        // 1. Gọi trực tiếp hàm onRemove từ React Fiber (nếu có)
+        extractAndCallFiberOnRemove(parentFlex);
+
+        // 2. Select the item on 3DG first by clicking title button
         if (titleBtn) {
             try { titleBtn.click(); } catch(e) {}
         }
 
-        // 2. Trigger silent native dropdown delete
+        // 3. Trigger silent native dropdown delete (Hỗ trợ cả Xoá nhóm và Xóa nhóm)
         triggerSilentNativeDelete(parentFlex);
 
-        // 3. Collect ALL map features (Exact same as Area Delete collectAllFeatures)
+        // 4. Xử lý trong chế độ 3D Mesh / Cesium
+        const viewer3d = window.__topo3dViewer || (window.__topoFind3dViewer && window.__topoFind3dViewer());
+        if (viewer3d) {
+            if (targetId && window.__topoUpdateCesium3dGroupColor) {
+                window.__topoUpdateCesium3dGroupColor(viewer3d, targetId, 'rgba(0,0,0,0)');
+            }
+            try { viewer3d.entities?.removeById(targetId); } catch(e) {}
+            try { viewer3d.scene?.requestRender(); } catch(e) {}
+        }
+
+        // 5. Xử lý trong chế độ 2D OpenLayers
         const allItems = collectAllMapFeatures();
         let itemsToDelete = [];
 
@@ -853,7 +905,7 @@
             } catch(e) {}
         }
 
-        // 4. Delete EXACTLY like Area Delete: item.source.removeFeature(item.feature)
+        // Delete from OpenLayers sources
         let deletedCount = 0;
         const sourcesToRefresh = new Set();
 
@@ -885,7 +937,7 @@
             map.render();
         }
 
-        // 5. Smoothly fade out and remove card DOM element
+        // 6. Smoothly fade out and remove card DOM element
         const cardContainer = parentFlex.closest('.border') || parentFlex.parentElement;
         if (cardContainer && cardContainer.parentNode) {
             cardContainer.style.transition = 'opacity 0.15s ease';

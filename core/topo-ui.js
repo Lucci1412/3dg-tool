@@ -91,7 +91,7 @@
                     <span class="topo-icon">🔍</span>
                     <span>Kiểm Tra Topology</span>
                     <span id="topo-badge-mode">
-                        <span class="topo-badge-2d">2D TILES</span>
+                        <span class="topo-badge-2d">2D PREMIUM</span>
                     </span>
                 </div>
                 <div class="topo-header-actions">
@@ -296,6 +296,9 @@
 
         // ===== 2D / 3D MODE DETECTION & UI ROUTER =====
         function updateAppModeUI() {
+            if (!document.getElementById('topo-fab-btn')) {
+                createUI();
+            }
             const newMode = detectCurrentAppMode();
             const badgeEl = document.getElementById('topo-badge-mode');
             const smartDrawEl = document.getElementById('topo-btn-smart-draw');
@@ -310,9 +313,9 @@
             const is3d = currentAppMode === '3d';
             if (badgeEl) {
                 if (is3d) {
-                    badgeEl.innerHTML = `<span class="topo-badge-3d">3D MESH</span>`;
+                    badgeEl.innerHTML = `<span class="topo-badge-3d">3D ULTRA</span>`;
                 } else {
-                    badgeEl.innerHTML = `<span class="topo-badge-2d">2D TILES</span>`;
+                    badgeEl.innerHTML = `<span class="topo-badge-2d">2D PREMIUM</span>`;
                 }
             }
 
@@ -1098,6 +1101,9 @@
         currentErrors = [];
         activeErrorId = null;
 
+        if (window.__topoClear3DOverlays) {
+            window.__topoClear3DOverlays();
+        }
         if (window.__topoClearHighlight) {
             window.__topoClearHighlight();
         }
@@ -1140,8 +1146,14 @@
             return;
         }
 
-        if (window.__topoRenderAllOverlays) {
-            window.__topoRenderAllOverlays(errors);
+        if (currentAppMode === '3d') {
+            if (window.__topoRender3DOverlays) {
+                window.__topoRender3DOverlays(errors);
+            }
+        } else {
+            if (window.__topoRenderAllOverlays) {
+                window.__topoRenderAllOverlays(errors);
+            }
         }
 
         const dangleCount = errors.filter(e => e.type === 'dangle').length;
@@ -1189,8 +1201,9 @@
                 if (err.type === 'duplicate') item.classList.add('--duplicate');
                 if (err.id === activeErrorId) item.classList.add('--active');
 
-                const x = err.coord[0].toFixed(2);
-                const y = err.coord[1].toFixed(2);
+                const isGeo = Math.abs(err.coord[0]) <= 180 && Math.abs(err.coord[1]) <= 90;
+                const x = isGeo ? err.coord[0].toFixed(6) : err.coord[0].toFixed(2);
+                const y = isGeo ? err.coord[1].toFixed(6) : err.coord[1].toFixed(2);
 
                 if (err.type === 'duplicate') {
                     item.innerHTML = `
@@ -1248,8 +1261,14 @@
             // Re-clicking active item TOGGLES OFF (Tắt sáng) highlight for this specific line!
             activeErrorId = null;
             if (itemElement) itemElement.classList.remove('--active');
-            if (window.__topoToggleHighlight) {
-                window.__topoToggleHighlight(err.id, false);
+            if (currentAppMode === '3d') {
+                if (window.__topoToggle3DHighlight) {
+                    window.__topoToggle3DHighlight(err.id, false);
+                }
+            } else {
+                if (window.__topoToggleHighlight) {
+                    window.__topoToggleHighlight(err.id, false);
+                }
             }
             return;
         }
@@ -1259,15 +1278,18 @@
         document.querySelectorAll('.topo-error-item').forEach(el => el.classList.remove('--active'));
         if (itemElement) itemElement.classList.add('--active');
 
-        if (window.__topoToggleHighlight) {
-            window.__topoToggleHighlight(err.id, true);
-        }
-
         if (currentAppMode === '3d') {
+            if (window.__topoToggle3DHighlight) {
+                window.__topoToggle3DHighlight(err.id, true);
+            }
             if (window.__topoZoomToError3D) {
                 window.__topoZoomToError3D(err);
             }
             return;
+        }
+
+        if (window.__topoToggleHighlight) {
+            window.__topoToggleHighlight(err.id, true);
         }
 
         const defaultZoom = window.__topoConfig?.defaultZoom || 24;

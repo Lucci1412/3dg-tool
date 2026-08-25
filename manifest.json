@@ -7,13 +7,7 @@
   "content_scripts": [
     {
       "matches": ["https://3dg.vn/*", "https://*.3dg.vn/*"],
-      "js": ["content.js"],
-      "run_at": "document_idle"
-    }
-  ],
-  "web_accessible_resources": [
-    {
-      "resources": [
+      "js": [
         "setting.js",
         "core/map-bridge.js",
         "core/2d/check-topo.js",
@@ -24,8 +18,18 @@
         "core/3d/bridge-3d.js",
         "core/3d/check-topo.js",
         "core/3d/area-color.js",
-        "core/topo-ui.js",
+        "core/topo-ui.js"
+      ],
+      "css": ["styles.css"],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
         "color.json",
+        "land-colors.json",
         "styles.css"
       ],
       "matches": ["https://3dg.vn/*", "https://*.3dg.vn/*"]
