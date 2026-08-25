@@ -82,7 +82,7 @@
 
         canvas = document.createElement('canvas');
         canvas.id = 'topo-area-draw-canvas';
-        canvas.style.cssText = 'position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:auto; z-index:9998; cursor:crosshair;';
+        canvas.style.cssText = 'position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:9998; cursor:default;';
         canvas.width = viewport.clientWidth;
         canvas.height = viewport.clientHeight;
         viewport.appendChild(canvas);
@@ -229,6 +229,7 @@
             canvas.removeEventListener('mousedown', onAreaMouseDown, true);
             canvas.removeEventListener('mouseup', onAreaMouseUp, true);
             canvas.style.pointerEvents = 'none';
+            canvas.style.cursor = 'default';
         }
     }
 
@@ -272,7 +273,10 @@
         clearHighlightedFeatures();
 
         const canvas = getOrCreateCanvasOverlay();
-        if (canvas) canvas.style.pointerEvents = 'auto';
+        if (canvas) {
+            canvas.style.pointerEvents = 'auto';
+            canvas.style.cursor = 'crosshair';
+        }
 
         attachCanvasMouseEvents();
         attachMapRenderListeners();
@@ -298,6 +302,7 @@
             const ctx = canvas.getContext('2d');
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             canvas.style.pointerEvents = 'none';
+            canvas.style.cursor = 'default';
         }
 
         clearHighlightedFeatures();

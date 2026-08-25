@@ -444,6 +444,15 @@
             setSmartDrawControlsVisible(false);
             currentAreaMode = null;
             setUIVisibilityMode('scan');
+
+            // Đảm bảo toàn bộ các canvas vẽ tương tác đều được reset về pointer-events: none và cursor: default
+            ['topo-area-draw-canvas', 'topo-cut-line-canvas', 'topo-smart-draw-canvas', 'topo-3d-area-draw-canvas'].forEach(id => {
+                const cv = document.getElementById(id);
+                if (cv) {
+                    cv.style.pointerEvents = 'none';
+                    cv.style.cursor = 'default';
+                }
+            });
         }
 
         function ensureNative3dgSelectEditModeActive() {
@@ -825,7 +834,6 @@
             areaFinishBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 e.preventDefault();
-                updateAppModeUI();
                 if (currentAreaMode === 'cut-line') {
                     if (window.__cutLineFinish) window.__cutLineFinish();
                     return;

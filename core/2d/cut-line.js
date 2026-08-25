@@ -268,6 +268,106 @@
         return null;
     }
 
+    // ===== STANDALONE OPENLAYERS-COMPATIBLE FALLBACK CLASSES =====
+    class TopoBaseEventTarget {
+        constructor() {
+            this._listeners = {};
+            this.ol_uid = Math.random().toString(36).slice(2);
+            this.revision_ = 0;
+        }
+        addEventListener(type, listener) {
+            if (!this._listeners[type]) this._listeners[type] = [];
+            this._listeners[type].push(listener);
+        }
+        removeEventListener(type, listener) {
+            if (!this._listeners[type]) return;
+            this._listeners[type] = this._listeners[type].filter(l => l !== listener);
+        }
+        on(type, listener) { this.addEventListener(type, listener); return listener; }
+        un(type, listener) { this.removeEventListener(type, listener); }
+        dispatchEvent(event) {
+            const type = typeof event === 'string' ? event : event.type;
+            const listeners = this._listeners[type] || [];
+            listeners.forEach(l => {
+                try { l(typeof event === 'string' ? { type: event, target: this } : event); } catch(e) {}
+            });
+            return true;
+        }
+        changed() {
+            this.revision_++;
+            this.dispatchEvent({ type: 'change', target: this });
+        }
+        getRevision() { return this.revision_; }
+    }
+
+    class TopoPolylineGeometry extends TopoBaseEventTarget {
+        constructor(coordinates) {
+            super();
+            this._coords = coordinates || [];
+        }
+        getType() { return 'LineString'; }
+        getCoordinates() { return this._coords; }
+        setCoordinates(coords) {
+            this._coords = coords;
+            this.changed();
+        }
+        getExtent() {
+            if (!this._coords || this._coords.length === 0) return [0, 0, 0, 0];
+            const xs = this._coords.map(c => c[0]);
+            const ys = this._coords.map(c => c[1]);
+            return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+        }
+        clone() {
+            return new TopoPolylineGeometry(this._coords.map(c => [...c]));
+        }
+        simplify(tolerance) { return this; }
+        getClosestPoint(point) { return this._coords[0] || point; }
+        intersectsExtent(ext) { return true; }
+        containsCoordinate(coord) { return false; }
+    }
+
+    class TopoMapFeature extends TopoBaseEventTarget {
+        constructor(geometry, properties = {}) {
+            super();
+            this._geometry = geometry;
+            this._properties = { ...properties };
+            this._id = properties.id || properties._editId || generateUUID();
+            this.id_ = this._id;
+            this._style = null;
+        }
+        getGeometry() { return this._geometry; }
+        setGeometry(geom) {
+            this._geometry = geom;
+            this.changed();
+        }
+        getId() { return this._id; }
+        setId(id) {
+            this._id = id;
+            this.id_ = id;
+        }
+        get(key) {
+            if (key === 'geometry') return this._geometry;
+            return this._properties[key];
+        }
+        set(key, val) {
+            if (key === 'geometry') {
+                this.setGeometry(val);
+                return;
+            }
+            this._properties[key] = val;
+            this.changed();
+        }
+        getProperties() {
+            return { ...this._properties, geometry: this._geometry };
+        }
+        setProperties(props) {
+            this._properties = { ...this._properties, ...props };
+            this.changed();
+        }
+        getStyle() { return this._style; }
+        setStyle(st) { this._style = st; this.changed(); }
+    }
+
     function createSplitFeature(origFeature, coords, map) {
         const ol = window.ol || window.openlayers;
         const clean = sanitizeCoords(coords);
@@ -277,15 +377,30 @@
         const LineStringClass = origGeom?.constructor || ol?.geom?.LineString;
         const FeatureClass = origFeature.constructor || ol?.Feature;
 
-        if (!LineStringClass || !FeatureClass) return null;
+        const rawType = origFeature.get?.('landType') || (origFeature.get?.('name')?.includes('Sông') ? 'DTL' : 'DGT');
+        const isRiver = String(rawType).toUpperCase() === 'DTL' || String(origFeature.get?.('name') || '').includes('Sông');
+        const landType = isRiver ? 'DTL' : 'DGT';
+        const defaultColor = isRiver ? (localStorage.getItem('topo_color_dtl') || '#aaffff') : (localStorage.getItem('topo_color_dgt') || '#ffaa32');
+        const color = origFeature.get?.('color') || origFeature.get?.('strokeColor') || origFeature.get?.('stroke') || defaultColor;
+        const newId = generateUUID();
+        const typeName = isRiver ? 'Sông' : 'Đường';
+        const newName = `${typeName} ${newId.slice(0, 6)}`;
 
         try {
             let newGeom = null;
             if (origGeom && typeof origGeom.clone === 'function') {
-                newGeom = origGeom.clone();
-                newGeom.setCoordinates(clean);
-            } else {
-                newGeom = new LineStringClass(clean, 'XY');
+                try {
+                    newGeom = origGeom.clone();
+                    newGeom.setCoordinates(clean);
+                } catch (e) { }
+            }
+
+            if (!newGeom && LineStringClass) {
+                try { newGeom = new LineStringClass(clean, 'XY'); } catch (e) { }
+            }
+
+            if (!newGeom) {
+                newGeom = new TopoPolylineGeometry(clean);
             }
 
             let newFeat = null;
@@ -296,24 +411,34 @@
                 } catch (e) { }
             }
 
-            if (!newFeat) {
-                newFeat = new FeatureClass({ geometry: newGeom });
+            if (!newFeat && FeatureClass) {
+                try { newFeat = new FeatureClass({ geometry: newGeom }); } catch (e) { }
             }
 
-            const newId = generateUUID();
+            if (!newFeat) {
+                newFeat = new TopoMapFeature(newGeom, {
+                    _editId: newId,
+                    color: color
+                });
+            }
+
             if (typeof newFeat.setId === 'function') newFeat.setId(newId);
             newFeat.id_ = newId;
             newFeat._id = newId;
             newFeat.id = newId;
 
+            if (typeof newFeat.set === 'function') {
+                newFeat.set('_editId', newId);
+                newFeat.set('color', color);
+            }
+
             // Preserve style
             const origStyle = origFeature.getStyle?.();
-            if (origStyle) {
+            if (origStyle && typeof newFeat.setStyle === 'function') {
                 newFeat.setStyle(origStyle);
             } else {
-                const color = origFeature.get?.('color') || origFeature.get?.('strokeColor') || '#ffaa32';
                 const customStyle = createOlStyleForFeature(color, 3.5, origFeature, map);
-                if (customStyle) newFeat.setStyle(customStyle);
+                if (customStyle && typeof newFeat.setStyle === 'function') newFeat.setStyle(customStyle);
             }
 
             return newFeat;
@@ -387,7 +512,7 @@
 
         canvas = document.createElement('canvas');
         canvas.id = 'topo-cut-line-canvas';
-        canvas.style.cssText = 'position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:auto; z-index:9998; cursor:crosshair;';
+        canvas.style.cssText = 'position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:9998; cursor:default;';
         canvas.width = viewport.clientWidth;
         canvas.height = viewport.clientHeight;
         viewport.appendChild(canvas);
@@ -397,7 +522,7 @@
     }
 
     function clearCanvas() {
-        const canvas = getOrCreateCanvasOverlay();
+        const canvas = document.getElementById('topo-cut-line-canvas') || canvasOverlay;
         if (canvas) {
             const ctx = canvas.getContext('2d');
             ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -1041,6 +1166,7 @@
             canvas.removeEventListener('dblclick', onCanvasDblClick, true);
             canvas.removeEventListener('contextmenu', onCanvasContextMenu, true);
             canvas.style.pointerEvents = 'none';
+            canvas.style.cursor = 'default';
         }
         window.removeEventListener('keydown', onKeyDown, true);
 

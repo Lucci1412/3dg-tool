@@ -621,6 +621,21 @@
         }
     }
 
+    function setLandTypeAndColor(landType, color) {
+        if (landType) currentLandType = landType;
+        if (color) currentColor = color;
+        renderSmartDrawCanvas();
+        log(`Updated SmartDrawer LandType: [${currentLandType}], Color: [${currentColor}]`);
+    }
+
+    function setSideOption(side) {
+        if (side) {
+            currentSide = side;
+            renderSmartDrawCanvas();
+            log(`Updated SmartDrawer Side: [${currentSide}]`);
+        }
+    }
+
     function onKeyDown(e) {
         if (!isSmartDrawing) return;
 
@@ -794,6 +809,106 @@
         return null;
     }
 
+    // ===== STANDALONE OPENLAYERS-COMPATIBLE FALLBACK CLASSES =====
+    class TopoBaseEventTarget {
+        constructor() {
+            this._listeners = {};
+            this.ol_uid = Math.random().toString(36).slice(2);
+            this.revision_ = 0;
+        }
+        addEventListener(type, listener) {
+            if (!this._listeners[type]) this._listeners[type] = [];
+            this._listeners[type].push(listener);
+        }
+        removeEventListener(type, listener) {
+            if (!this._listeners[type]) return;
+            this._listeners[type] = this._listeners[type].filter(l => l !== listener);
+        }
+        on(type, listener) { this.addEventListener(type, listener); return listener; }
+        un(type, listener) { this.removeEventListener(type, listener); }
+        dispatchEvent(event) {
+            const type = typeof event === 'string' ? event : event.type;
+            const listeners = this._listeners[type] || [];
+            listeners.forEach(l => {
+                try { l(typeof event === 'string' ? { type: event, target: this } : event); } catch(e) {}
+            });
+            return true;
+        }
+        changed() {
+            this.revision_++;
+            this.dispatchEvent({ type: 'change', target: this });
+        }
+        getRevision() { return this.revision_; }
+    }
+
+    class TopoPolylineGeometry extends TopoBaseEventTarget {
+        constructor(coordinates) {
+            super();
+            this._coords = coordinates || [];
+        }
+        getType() { return 'LineString'; }
+        getCoordinates() { return this._coords; }
+        setCoordinates(coords) {
+            this._coords = coords;
+            this.changed();
+        }
+        getExtent() {
+            if (!this._coords || this._coords.length === 0) return [0, 0, 0, 0];
+            const xs = this._coords.map(c => c[0]);
+            const ys = this._coords.map(c => c[1]);
+            return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+        }
+        clone() {
+            return new TopoPolylineGeometry(this._coords.map(c => [...c]));
+        }
+        simplify(tolerance) { return this; }
+        getClosestPoint(point) { return this._coords[0] || point; }
+        intersectsExtent(ext) { return true; }
+        containsCoordinate(coord) { return false; }
+    }
+
+    class TopoMapFeature extends TopoBaseEventTarget {
+        constructor(geometry, properties = {}) {
+            super();
+            this._geometry = geometry;
+            this._properties = { ...properties };
+            this._id = properties.id || properties._editId || generateUUID();
+            this.id_ = this._id;
+            this._style = null;
+        }
+        getGeometry() { return this._geometry; }
+        setGeometry(geom) {
+            this._geometry = geom;
+            this.changed();
+        }
+        getId() { return this._id; }
+        setId(id) {
+            this._id = id;
+            this.id_ = id;
+        }
+        get(key) {
+            if (key === 'geometry') return this._geometry;
+            return this._properties[key];
+        }
+        set(key, val) {
+            if (key === 'geometry') {
+                this.setGeometry(val);
+                return;
+            }
+            this._properties[key] = val;
+            this.changed();
+        }
+        getProperties() {
+            return { ...this._properties, geometry: this._geometry };
+        }
+        setProperties(props) {
+            this._properties = { ...this._properties, ...props };
+            this.changed();
+        }
+        getStyle() { return this._style; }
+        setStyle(st) { this._style = st; this.changed(); }
+    }
+
     // ===== ADD POLYLINE FEATURE WITH DYNAMIC LAND TYPE & COLOR =====
     function addPolylineFeatureToMap(map, coords, extraProps = {}) {
         const clean = sanitizeCoords(coords);
@@ -816,12 +931,14 @@
             if (feats.length > 0) resolvedSample = feats[0];
         }
 
-        const activeColor = extraProps.color || currentColor || '#ffaa32';
-        const strokeColor = activeColor;
-        // FIX #3: fall back to currentLandType so this is never empty/undefined,
-        // which is what let cleanup mistake our own lines for native junk.
         const landTypeToSet = extraProps.landType || currentLandType || 'DGT';
+        const isRiver = landTypeToSet === 'DTL' || String(landTypeToSet).toUpperCase() === 'DTL';
+        const defaultColor = isRiver ? (localStorage.getItem('topo_color_dtl') || '#aaffff') : (localStorage.getItem('topo_color_dgt') || '#ffaa32');
+        const activeColor = extraProps.color || currentColor || defaultColor;
+        const strokeColor = activeColor;
         const featureId = generateUUID();
+        const typeName = isRiver ? 'Sông' : 'Đường';
+        const featName = `${typeName} ${featureId.slice(0, 6)}`;
 
         try {
             let feat = null;
@@ -852,14 +969,22 @@
                 try { newGeom = new ol.geom.LineString(clean); } catch (e) { }
             }
 
+            // Fallback geometry if OpenLayers native classes are inaccessible
             if (!newGeom) {
-                log('Cannot create LineString geometry.');
-                return null;
+                newGeom = new TopoPolylineGeometry(clean);
             }
 
             const FeatureClass = resolvedSample?.constructor || ol?.Feature;
             if (FeatureClass) {
                 try { feat = new FeatureClass({ geometry: newGeom }); } catch (e) { }
+            }
+
+            // Fallback feature if OpenLayers native Feature class is inaccessible
+            if (!feat) {
+                feat = new TopoMapFeature(newGeom, {
+                    _editId: featureId,
+                    color: strokeColor
+                });
             }
 
             if (feat) {
@@ -870,9 +995,6 @@
                     if (typeof feat.set === 'function') {
                         feat.set('_editId', featureId);
                         feat.set('color', strokeColor);
-                        feat.set('strokeColor', strokeColor);
-                        // FIX #3: actually apply landType now (was missing before).
-                        feat.set('landType', landTypeToSet);
                     }
 
                     const customStyle = createOlStyleForFeature(strokeColor, 3.5, resolvedSample, map);
@@ -883,17 +1005,26 @@
                     const existing = targetSource.getFeatureById ? targetSource.getFeatureById(featureId) : null;
                     if (!existing) {
                         targetSource.addFeature(feat);
+                        if (typeof targetSource.changed === 'function') targetSource.changed();
                     }
 
                     if (layerSource && layerSource !== targetSource) {
                         try {
                             const ex2 = layerSource.getFeatureById ? layerSource.getFeatureById(featureId) : null;
-                            if (!ex2) layerSource.addFeature(feat);
+                            if (!ex2) {
+                                layerSource.addFeature(feat);
+                                if (typeof layerSource.changed === 'function') layerSource.changed();
+                            }
                         } catch (e) { }
                     }
 
-                    // FIX #2: record ownership so cleanup can be exact, not guessy.
+                    // Sync to React state if bridge is present
+                    if (window.__topoSyncFeatureToReactState) {
+                        try { window.__topoSyncFeatureToReactState(feat); } catch (e) { }
+                    }
+
                     ourFeatureIds.add(featureId);
+                    if (typeof map.render === 'function') map.render();
                 } catch (e) { }
             }
 

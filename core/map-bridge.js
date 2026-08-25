@@ -461,19 +461,20 @@
             ? olFeature.getProperties()
             : (geojsonFeature?.properties || {});
 
-        const landType = existingProps.landType || existingProps.Layer || 'DGT';
-        const strokeColor = existingProps.color || existingProps.strokeColor || existingProps.stroke || (landType === 'DTL' ? '#aaffff' : '#ffaa32');
+        const rawType = existingProps.landType || existingProps.Layer || (existingProps.name?.includes('Sông') ? 'DTL' : 'DGT');
+        const isRiver = String(rawType).toUpperCase() === 'DTL' || String(existingProps.name || '').includes('Sông');
+        const landType = isRiver ? 'DTL' : 'DGT';
+        const defaultColor = isRiver ? (localStorage.getItem('topo_color_dtl') || '#aaffff') : (localStorage.getItem('topo_color_dgt') || '#ffaa32');
+        const strokeColor = existingProps.strokeColor || existingProps.color || existingProps.stroke || defaultColor;
+        const typeName = isRiver ? 'Sông' : 'Đường';
         const featureName = (existingProps.name && !existingProps.name.includes('Đất công trình'))
             ? existingProps.name
-            : (landType === 'DTL' ? `Sông ${featureId.slice(0, 4)}` : `Đường ${featureId.slice(0, 4)}`);
+            : `${typeName} ${featureId.slice(0, 6)}`;
 
-        // Clean properties dictionary: preserve existing properties only, do not inject junk keys
+        // Clean properties dictionary: exclude internal keys so 3DG property table stays clean like native lines
         const cleanProperties = Object.assign({}, existingProps);
-        delete cleanProperties.geometry;
-
-        if (!cleanProperties.name) {
-            cleanProperties.name = featureName;
-        }
+        const internalKeys = ['geometry', 'id', 'name', 'landType', 'color', 'strokeColor', 'stroke', '_editId', 'Layer', 'loaiDat', 'ownerCount', 'pointCount', 'mode'];
+        internalKeys.forEach(k => delete cleanProperties[k]);
 
         // Ensure unique outer ID is saved on olFeature so 3DG retains identity without polluting attribute table
         if (olFeature) {
@@ -482,9 +483,9 @@
             olFeature._id = featureId;
             olFeature.id = featureId;
 
-            // Only set name if missing
-            if (typeof olFeature.set === 'function' && !olFeature.get?.('name')) {
-                olFeature.set('name', featureName);
+            if (typeof olFeature.set === 'function') {
+                olFeature.set('_editId', featureId);
+                olFeature.set('color', strokeColor);
             }
         }
 
@@ -509,9 +510,12 @@
             mode: 'line',
             color: strokeColor,
             pointCount: pointCount,
+            landType: landType,
+            properties: cleanProperties,
             createdBy: '',
             createdAt: new Date().toISOString(),
-            feature: olFeature || geojsonFeatureObject
+            feature: olFeature || geojsonFeatureObject,
+            geojsonFeatureObject: geojsonFeatureObject
         };
 
         const itemContainer = {
@@ -547,25 +551,67 @@
             dispatchReduxStore(window.store);
         }
 
-        // 2. Traversal of React Fiber tree to update 3dg.vn React state & Redux Store directly (Deduplicated)
-        let synced = false;
-        const dispatchedQueues = new Set();
+        // 2. Traversal of React Fiber tree to update 3dg.vn React state & Redux Store directly
+        function get3dgGroupsQueue() {
+            const root = document.getElementById('root') || document.body;
+            const candidates = [root, ...Array.from(document.querySelectorAll('div, section, aside, main, nav, ul, li'))];
 
+            for (const el of candidates) {
+                const key = Object.keys(el).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactContainer'));
+                if (!key) continue;
+
+                let fiber = el[key];
+                for (let depth = 0; depth < 120 && fiber; depth++) {
+                    if (fiber.memoizedProps?.onFinishDrawing || fiber.memoizedProps?.mapInstance || fiber.elementType?.name === 'Dc') {
+                        let s = fiber.memoizedState;
+                        let idx = 0;
+                        while (s) {
+                            if (idx === 61 && s.queue && typeof s.queue.dispatch === 'function') {
+                                return s.queue;
+                            }
+                            if (s.queue && typeof s.queue.dispatch === 'function' && Array.isArray(s.memoizedState)) {
+                                if (s.memoizedState.length > 0 && (s.memoizedState[0]?.id || s.memoizedState[0]?.group || s.memoizedState[0]?.mode)) {
+                                    return s.queue;
+                                }
+                            }
+                            idx++;
+                            s = s.next;
+                        }
+                    }
+                    fiber = fiber.return;
+                }
+            }
+            return null;
+        }
+
+        const groupsQueue = get3dgGroupsQueue();
+        if (groupsQueue && typeof groupsQueue.dispatch === 'function') {
+            groupsQueue.dispatch(prev => {
+                if (!Array.isArray(prev)) return [groupObject];
+                const exists = prev.some(item => (item.id === featureId || item.group?.id === featureId || item._id === featureId));
+                if (exists) return prev;
+                if (prev.length > 0 && prev[0].group) {
+                    return [...prev, itemContainer];
+                }
+                return [...prev, groupObject];
+            });
+        }
+
+        // Also check any general store or callbacks
         const root = document.getElementById('root') || document.body;
         const candidates = [root, ...Array.from(document.querySelectorAll('div, section, aside, main, nav, ul, li'))];
+        const dispatchedQueues = new Set();
+        if (groupsQueue) dispatchedQueues.add(groupsQueue);
 
         for (const el of candidates) {
-            if (synced) break;
             const key = Object.keys(el).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactContainer'));
             if (!key) continue;
 
             let node = el[key];
-            for (let depth = 0; depth < 300 && node && !synced; depth++) {
+            for (let depth = 0; depth < 80 && node; depth++) {
                 try {
                     const fiberStore = node.memoizedProps?.store || node.stateNode?.store || node.memoizedProps?.value?.store;
-                    if (fiberStore) {
-                        dispatchReduxStore(fiberStore);
-                    }
+                    if (fiberStore) dispatchReduxStore(fiberStore);
 
                     const fiberDispatch = node.memoizedProps?.dispatch || node.memoizedProps?.value?.dispatch;
                     if (typeof fiberDispatch === 'function') {
@@ -577,45 +623,25 @@
 
                     const props = node.memoizedProps;
                     if (props) {
-                        if (typeof props.onGroupAdd === 'function') {
-                            props.onGroupAdd(groupObject);
-                            synced = true;
-                            break;
-                        }
-                        if (typeof props.onFeatureAdd === 'function') {
-                            props.onFeatureAdd(groupObject);
-                            synced = true;
-                            break;
-                        }
+                        if (typeof props.onGroupAdd === 'function') props.onGroupAdd(groupObject);
+                        if (typeof props.onFeatureAdd === 'function') props.onFeatureAdd(groupObject);
                     }
 
                     let s = node.memoizedState;
-                    while (s && !synced) {
+                    while (s) {
                         if (s.queue && typeof s.queue.dispatch === 'function' && Array.isArray(s.memoizedState)) {
                             if (!dispatchedQueues.has(s.queue)) {
-                                dispatchedQueues.add(s.queue);
                                 const arr = s.memoizedState;
-                                if (arr.length > 0) {
-                                    const sample = arr[0];
-                                    if (sample && (sample.group || sample.mode || sample.landType || sample.type === 'Feature' || sample.geometry || sample.id)) {
-                                        s.queue.dispatch(prev => {
-                                            if (Array.isArray(prev)) {
-                                                // Prevent adding duplicate feature with same ID
-                                                const exists = prev.some(item => (item.id === featureId || item.group?.id === featureId));
-                                                if (exists) return prev;
-
-                                                if (prev.length > 0 && prev[0].group) {
-                                                    return [...prev, itemContainer];
-                                                } else if (prev.length > 0 && (prev[0].mode || prev[0].landType)) {
-                                                    return [...prev, groupObject];
-                                                }
-                                                return [...prev, groupObject];
-                                            }
-                                            return prev;
-                                        });
-                                        synced = true;
-                                        break;
-                                    }
+                                if (arr.length > 0 && (arr[0]?.id || arr[0]?.group || arr[0]?.mode)) {
+                                    dispatchedQueues.add(s.queue);
+                                    s.queue.dispatch(prev => {
+                                        if (Array.isArray(prev)) {
+                                            const exists = prev.some(item => (item.id === featureId || item.group?.id === featureId || item._id === featureId));
+                                            if (exists) return prev;
+                                            return [...prev, groupObject];
+                                        }
+                                        return [groupObject];
+                                    });
                                 }
                             }
                         }
@@ -666,25 +692,30 @@
         // 2. Traversal of React Fiber tree
         const root = document.getElementById('root') || document.body;
         const candidates = [root, ...Array.from(document.querySelectorAll('div, section, aside, main, nav, ul, li'))];
+        const dispatchedQueues = new Set();
 
         for (const el of candidates) {
             const key = Object.keys(el).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactContainer'));
             if (!key) continue;
 
             let node = el[key];
-            for (let depth = 0; depth < 300 && node; depth++) {
+            for (let depth = 0; depth < 120 && node; depth++) {
                 try {
+                    const isDc = node.memoizedProps?.onFinishDrawing || node.memoizedProps?.mapInstance || node.elementType?.name === 'Dc';
+
                     let s = node.memoizedState;
+                    let hookIdx = 0;
                     while (s) {
                         if (s.queue && typeof s.queue.dispatch === 'function' && Array.isArray(s.memoizedState)) {
-                            const arr = s.memoizedState;
-                            if (arr.length > 0) {
-                                const sample = arr[0];
-                                if (sample && (sample.group || sample.mode || sample.landType || sample.type === 'Feature' || sample.geometry || sample.id)) {
+                            if (!dispatchedQueues.has(s.queue)) {
+                                const arr = s.memoizedState;
+                                const isMatch = (isDc && hookIdx === 61) || (arr.length > 0 && (arr[0]?.id || arr[0]?.group || arr[0]?.mode));
+                                if (isMatch) {
+                                    dispatchedQueues.add(s.queue);
                                     s.queue.dispatch(prev => {
                                         if (Array.isArray(prev)) {
                                             return prev.filter(item => {
-                                                const id = item.id || item.group?.id || item.geojsonFeatureObject?.id;
+                                                const id = item.id || item._id || item.group?.id || item.geojsonFeatureObject?.id;
                                                 return id !== featureId;
                                             });
                                         }
@@ -693,6 +724,7 @@
                                 }
                             }
                         }
+                        hookIdx++;
                         s = s.next;
                     }
                 } catch (e) {}
@@ -812,10 +844,6 @@
         const toolsBtn = parentFlex.querySelector('button[title="Công cụ nhóm"]') || parentFlex.querySelector('.ant-dropdown-trigger');
         if (!toolsBtn) return;
 
-        const styleEl = document.createElement('style');
-        styleEl.textContent = '.ant-dropdown, .ant-dropdown-menu-root, .ant-popover { opacity: 0 !important; pointer-events: auto !important; }';
-        (document.head || document.documentElement).appendChild(styleEl);
-
         try {
             toolsBtn.click();
             setTimeout(() => {
@@ -832,13 +860,8 @@
                         break;
                     }
                 }
-                setTimeout(() => {
-                    try { styleEl.remove(); } catch(e) {}
-                }, 150);
             }, 30);
-        } catch (e) {
-            try { styleEl.remove(); } catch(err) {}
-        }
+        } catch (e) {}
     }
 
     function removeFeatureDirectlyFromFlex(parentFlex) {
@@ -848,15 +871,17 @@
         const targetId = extractFeatureIdFromFiber(parentFlex);
 
         // 1. Gọi trực tiếp hàm onRemove từ React Fiber (nếu có)
-        extractAndCallFiberOnRemove(parentFlex);
+        const fiberDeleted = extractAndCallFiberOnRemove(parentFlex);
 
         // 2. Select the item on 3DG first by clicking title button
         if (titleBtn) {
             try { titleBtn.click(); } catch(e) {}
         }
 
-        // 3. Trigger silent native dropdown delete (Hỗ trợ cả Xoá nhóm và Xóa nhóm)
-        triggerSilentNativeDelete(parentFlex);
+        // 3. Trigger native dropdown delete nếu chưa xóa được qua Fiber
+        if (!fiberDeleted) {
+            triggerSilentNativeDelete(parentFlex);
+        }
 
         // 4. Xử lý trong chế độ 3D Mesh / Cesium
         const viewer3d = window.__topo3dViewer || (window.__topoFind3dViewer && window.__topoFind3dViewer());
@@ -949,8 +974,12 @@
     }
 
     function injectQuickTrashButtons() {
-        const toolsBtns = document.querySelectorAll('button[title="Công cụ nhóm"], .ant-dropdown-trigger');
+        const toolsBtns = document.querySelectorAll('button[title="Công cụ nhóm"], .border button.ant-dropdown-trigger');
         toolsBtns.forEach(btn => {
+            const title = (btn.getAttribute('title') || '').toLowerCase();
+            if (title.includes('xuất') || title.includes('nhập') || title.includes('tải') || title.includes('lớp') || title.includes('cài đặt')) return;
+            if (btn.closest('.toolbar') || btn.closest('.topo-panel') || btn.closest('#topo-checker-panel')) return;
+
             const parentFlex = btn.parentElement;
             if (!parentFlex || parentFlex.querySelector('.topo-quick-delete-btn')) return;
 

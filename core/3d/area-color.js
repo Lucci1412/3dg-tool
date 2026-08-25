@@ -99,7 +99,7 @@
 
         canvas = document.createElement('canvas');
         canvas.id = 'topo-3d-area-draw-canvas';
-        canvas.style.cssText = 'position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:auto; z-index:9998; cursor:crosshair;';
+        canvas.style.cssText = 'position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:9998; cursor:default;';
         canvas.width = container.clientWidth || window.innerWidth;
         canvas.height = container.clientHeight || window.innerHeight;
         container.appendChild(canvas);
@@ -108,6 +108,8 @@
 
     function removeCanvasOverlay() {
         if (canvasOverlay) {
+            canvasOverlay.style.pointerEvents = 'none';
+            canvasOverlay.style.cursor = 'default';
             canvasOverlay.removeEventListener('mousedown', onMouseDown);
             canvasOverlay.removeEventListener('mousemove', onMouseMove);
             canvasOverlay.removeEventListener('dblclick', onDoubleClick);
@@ -233,6 +235,9 @@
             console.error('[AreaColor3D] Failed to get canvas overlay');
             return false;
         }
+
+        canvasOverlay.style.pointerEvents = 'auto';
+        canvasOverlay.style.cursor = 'crosshair';
 
         canvasOverlay.addEventListener('mousedown', onMouseDown);
         canvasOverlay.addEventListener('mousemove', onMouseMove);
