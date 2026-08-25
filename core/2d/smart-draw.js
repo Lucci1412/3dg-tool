@@ -263,7 +263,7 @@
             for (let i = 1; i < pixels.length; i++) {
                 ctx.lineTo(pixels[i][0], pixels[i][1]);
             }
-            ctx.lineWidth = 3.5;
+            ctx.lineWidth = 2.0;
             ctx.strokeStyle = currentColor || '#ffaa32';
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
@@ -755,7 +755,7 @@
         return null;
     }
 
-    function createOlStyleForFeature(color, width = 3.5, sampleFeature = null, map = null) {
+    function createOlStyleForFeature(color, width = 2.0, sampleFeature = null, map = null) {
         const ol = window.ol || window.openlayers;
         let StyleClass = ol?.style?.Style;
         let StrokeClass = ol?.style?.Stroke;
@@ -991,13 +991,19 @@
                 try {
                     if (typeof feat.setId === 'function') feat.setId(featureId);
                     feat.id_ = featureId;
+                    feat._id = featureId;
+                    feat.id = featureId;
+                    feat._editId = featureId;
+                    feat._landType = landTypeToSet;
+                    feat._color = strokeColor;
+                    feat._name = featName;
 
                     if (typeof feat.set === 'function') {
                         feat.set('_editId', featureId);
                         feat.set('color', strokeColor);
                     }
 
-                    const customStyle = createOlStyleForFeature(strokeColor, 3.5, resolvedSample, map);
+                    const customStyle = createOlStyleForFeature(strokeColor, 2.0, resolvedSample, map);
                     if (customStyle && typeof feat.setStyle === 'function') {
                         feat.setStyle(customStyle);
                     }

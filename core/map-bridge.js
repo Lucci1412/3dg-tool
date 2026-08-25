@@ -442,10 +442,52 @@
     }
 
     // ===== SYNC NEW FEATURES TO 3DG.VN REACT STATE & REDUX STORE =====
+    function get3dgGroupsQueues() {
+        const queues = [];
+        const root = document.getElementById('root') || document.body;
+        const candidates = [root, ...Array.from(document.querySelectorAll('div, section, aside, main, nav, ul, li'))];
+        const seenQueues = new Set();
+
+        for (const el of candidates) {
+            const key = Object.keys(el).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactContainer'));
+            if (!key) continue;
+
+            let fiber = el[key];
+            for (let depth = 0; depth < 120 && fiber; depth++) {
+                if (fiber.memoizedProps?.onFinishDrawing || fiber.memoizedProps?.mapInstance || fiber.elementType?.name === 'Dc') {
+                    let s = fiber.memoizedState;
+                    let idx = 0;
+                    while (s) {
+                        if (idx === 61 && s.queue && typeof s.queue.dispatch === 'function' && !seenQueues.has(s.queue)) {
+                            seenQueues.add(s.queue);
+                            queues.push(s.queue);
+                        } else if (s.queue && typeof s.queue.dispatch === 'function' && Array.isArray(s.memoizedState) && !seenQueues.has(s.queue)) {
+                            if (s.memoizedState.length > 0 && (s.memoizedState[0]?.id || s.memoizedState[0]?.group || s.memoizedState[0]?.mode)) {
+                                seenQueues.add(s.queue);
+                                queues.push(s.queue);
+                            }
+                        }
+                        idx++;
+                        s = s.next;
+                    }
+                }
+                fiber = fiber.return;
+            }
+        }
+        return queues;
+    }
+
     function syncFeatureTo3dgReactState(olFeature, geojsonFeature) {
         const map = window.__topoMap || findOlMap();
 
-        let featureId = (olFeature && typeof olFeature.get === 'function' && olFeature.get('id')) || (geojsonFeature && geojsonFeature.id);
+        let featureId = (olFeature && typeof olFeature.getId === 'function' && olFeature.getId())
+            || olFeature?._editId
+            || olFeature?.id_
+            || olFeature?._id
+            || olFeature?.id
+            || (olFeature && typeof olFeature.get === 'function' && (olFeature.get('_editId') || olFeature.get('id')))
+            || (geojsonFeature && geojsonFeature.id);
+
         if (!featureId || featureId.length < 5) {
             featureId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : 'feat-' + Date.now() + '-' + Math.floor(Math.random() * 1000000);
         }
@@ -461,15 +503,19 @@
             ? olFeature.getProperties()
             : (geojsonFeature?.properties || {});
 
-        const rawType = existingProps.landType || existingProps.Layer || (existingProps.name?.includes('Sông') ? 'DTL' : 'DGT');
-        const isRiver = String(rawType).toUpperCase() === 'DTL' || String(existingProps.name || '').includes('Sông');
+        const rawType = olFeature?._landType
+            || (olFeature && typeof olFeature.get === 'function' && olFeature.get('landType'))
+            || existingProps.landType
+            || existingProps.Layer
+            || (existingProps.name?.includes('Sông') ? 'DTL' : 'DGT');
+
+        const isRiver = String(rawType).toUpperCase() === 'DTL' || String(olFeature?._name || existingProps.name || '').includes('Sông');
         const landType = isRiver ? 'DTL' : 'DGT';
         const defaultColor = isRiver ? (localStorage.getItem('topo_color_dtl') || '#aaffff') : (localStorage.getItem('topo_color_dgt') || '#ffaa32');
-        const strokeColor = existingProps.strokeColor || existingProps.color || existingProps.stroke || defaultColor;
+        const strokeColor = olFeature?._color || existingProps.strokeColor || existingProps.color || existingProps.stroke || defaultColor;
         const typeName = isRiver ? 'Sông' : 'Đường';
-        const featureName = (existingProps.name && !existingProps.name.includes('Đất công trình'))
-            ? existingProps.name
-            : `${typeName} ${featureId.slice(0, 6)}`;
+        const featureName = olFeature?._name
+            || ((existingProps.name && !existingProps.name.includes('Đất công trình')) ? existingProps.name : `${typeName} ${featureId.slice(0, 6)}`);
 
         // Clean properties dictionary: exclude internal keys so 3DG property table stays clean like native lines
         const cleanProperties = Object.assign({}, existingProps);
@@ -482,6 +528,10 @@
             olFeature.id_ = featureId;
             olFeature._id = featureId;
             olFeature.id = featureId;
+            olFeature._editId = featureId;
+            olFeature._landType = landType;
+            olFeature._color = strokeColor;
+            olFeature._name = featureName;
 
             if (typeof olFeature.set === 'function') {
                 olFeature.set('_editId', featureId);
@@ -552,56 +602,25 @@
         }
 
         // 2. Traversal of React Fiber tree to update 3dg.vn React state & Redux Store directly
-        function get3dgGroupsQueue() {
-            const root = document.getElementById('root') || document.body;
-            const candidates = [root, ...Array.from(document.querySelectorAll('div, section, aside, main, nav, ul, li'))];
-
-            for (const el of candidates) {
-                const key = Object.keys(el).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactContainer'));
-                if (!key) continue;
-
-                let fiber = el[key];
-                for (let depth = 0; depth < 120 && fiber; depth++) {
-                    if (fiber.memoizedProps?.onFinishDrawing || fiber.memoizedProps?.mapInstance || fiber.elementType?.name === 'Dc') {
-                        let s = fiber.memoizedState;
-                        let idx = 0;
-                        while (s) {
-                            if (idx === 61 && s.queue && typeof s.queue.dispatch === 'function') {
-                                return s.queue;
-                            }
-                            if (s.queue && typeof s.queue.dispatch === 'function' && Array.isArray(s.memoizedState)) {
-                                if (s.memoizedState.length > 0 && (s.memoizedState[0]?.id || s.memoizedState[0]?.group || s.memoizedState[0]?.mode)) {
-                                    return s.queue;
-                                }
-                            }
-                            idx++;
-                            s = s.next;
-                        }
+        const groupsQueues = get3dgGroupsQueues();
+        groupsQueues.forEach(q => {
+            try {
+                q.dispatch(prev => {
+                    if (!Array.isArray(prev)) return [groupObject];
+                    const exists = prev.some(item => (item.id === featureId || item.group?.id === featureId || item._id === featureId));
+                    if (exists) return prev;
+                    if (prev.length > 0 && prev[0].group) {
+                        return [...prev, itemContainer];
                     }
-                    fiber = fiber.return;
-                }
-            }
-            return null;
-        }
-
-        const groupsQueue = get3dgGroupsQueue();
-        if (groupsQueue && typeof groupsQueue.dispatch === 'function') {
-            groupsQueue.dispatch(prev => {
-                if (!Array.isArray(prev)) return [groupObject];
-                const exists = prev.some(item => (item.id === featureId || item.group?.id === featureId || item._id === featureId));
-                if (exists) return prev;
-                if (prev.length > 0 && prev[0].group) {
-                    return [...prev, itemContainer];
-                }
-                return [...prev, groupObject];
-            });
-        }
+                    return [...prev, groupObject];
+                });
+            } catch (e) { }
+        });
 
         // Also check any general store or callbacks
         const root = document.getElementById('root') || document.body;
         const candidates = [root, ...Array.from(document.querySelectorAll('div, section, aside, main, nav, ul, li'))];
-        const dispatchedQueues = new Set();
-        if (groupsQueue) dispatchedQueues.add(groupsQueue);
+        const dispatchedQueues = new Set(groupsQueues);
 
         for (const el of candidates) {
             const key = Object.keys(el).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactContainer'));
@@ -690,9 +709,22 @@
         }
 
         // 2. Traversal of React Fiber tree
+        const groupsQueues = get3dgGroupsQueues();
+        groupsQueues.forEach(q => {
+            try {
+                q.dispatch(prev => {
+                    if (!Array.isArray(prev)) return prev;
+                    return prev.filter(item => {
+                        const id = item.id || item._id || item.group?.id || item.geojsonFeatureObject?.id;
+                        return id !== featureId;
+                    });
+                });
+            } catch (e) { }
+        });
+
         const root = document.getElementById('root') || document.body;
         const candidates = [root, ...Array.from(document.querySelectorAll('div, section, aside, main, nav, ul, li'))];
-        const dispatchedQueues = new Set();
+        const dispatchedQueues = new Set(groupsQueues);
 
         for (const el of candidates) {
             const key = Object.keys(el).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactContainer'));
@@ -701,16 +733,12 @@
             let node = el[key];
             for (let depth = 0; depth < 120 && node; depth++) {
                 try {
-                    const isDc = node.memoizedProps?.onFinishDrawing || node.memoizedProps?.mapInstance || node.elementType?.name === 'Dc';
-
                     let s = node.memoizedState;
-                    let hookIdx = 0;
                     while (s) {
                         if (s.queue && typeof s.queue.dispatch === 'function' && Array.isArray(s.memoizedState)) {
                             if (!dispatchedQueues.has(s.queue)) {
                                 const arr = s.memoizedState;
-                                const isMatch = (isDc && hookIdx === 61) || (arr.length > 0 && (arr[0]?.id || arr[0]?.group || arr[0]?.mode));
-                                if (isMatch) {
+                                if (arr.length > 0 && (arr[0]?.id || arr[0]?.group || arr[0]?.mode)) {
                                     dispatchedQueues.add(s.queue);
                                     s.queue.dispatch(prev => {
                                         if (Array.isArray(prev)) {
@@ -724,7 +752,6 @@
                                 }
                             }
                         }
-                        hookIdx++;
                         s = s.next;
                     }
                 } catch (e) {}

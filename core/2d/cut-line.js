@@ -234,7 +234,7 @@
         return { primary: primarySource, sources: sources, sample: sampleLineFeature };
     }
 
-    function createOlStyleForFeature(color, width = 3.5, sampleFeature = null, map = null) {
+    function createOlStyleForFeature(color, width = 2.0, sampleFeature = null, map = null) {
         const ol = window.ol || window.openlayers;
         let StyleClass = ol?.style?.Style;
         let StrokeClass = ol?.style?.Stroke;
@@ -426,6 +426,10 @@
             newFeat.id_ = newId;
             newFeat._id = newId;
             newFeat.id = newId;
+            newFeat._editId = newId;
+            newFeat._landType = landType;
+            newFeat._color = color;
+            newFeat._name = newName;
 
             if (typeof newFeat.set === 'function') {
                 newFeat.set('_editId', newId);
@@ -437,7 +441,7 @@
             if (origStyle && typeof newFeat.setStyle === 'function') {
                 newFeat.setStyle(origStyle);
             } else {
-                const customStyle = createOlStyleForFeature(color, 3.5, origFeature, map);
+                const customStyle = createOlStyleForFeature(color, 2.0, origFeature, map);
                 if (customStyle && typeof newFeat.setStyle === 'function') newFeat.setStyle(customStyle);
             }
 
