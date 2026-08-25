@@ -1,0 +1,314 @@
+[
+  {
+    "code": "CLN",
+    "name": "Đất trồng cây lâu năm",
+    "color": "#ffd2a0",
+    "priority": 1
+  },
+  {
+    "code": "LUA",
+    "name": "Đất trồng lúa",
+    "color": "#fffc82",
+    "priority": 1
+  },
+  {
+    "code": "LUC",
+    "name": "Đất chuyên trồng lúa",
+    "color": "#fffc8c",
+    "priority": 1
+  },
+  {
+    "code": "ODT",
+    "name": "Đất ở tại đô thị",
+    "color": "#ffa0ff",
+    "priority": 1
+  },
+  {
+    "code": "ONT",
+    "name": "Đất ở tại nông thôn",
+    "color": "#ffd0ff",
+    "priority": 1
+  },
+  {
+    "code": "DGT",
+    "name": "Đất công trình giao thông",
+    "color": "#ffaa32",
+    "priority": 1
+  },
+  {
+    "code": "DTL",
+    "name": "Đất công trình thủy lợi",
+    "color": "#aaffff",
+    "priority": 1
+  },
+  {
+    "code": "RSX",
+    "name": "Đất rừng sản xuất",
+    "color": "#b4ffb4",
+    "priority": 1
+  },
+  {
+    "code": "BCS",
+    "name": "Đất bằng chưa sử dụng",
+    "color": "#ffffff",
+    "priority": 0
+  },
+  {
+    "code": "CAN",
+    "name": "Đất an ninh",
+    "color": "#ff5046",
+    "priority": 0
+  },
+  {
+    "code": "CCC",
+    "name": "Đất sử dụng vào mục đích công cộng",
+    "color": "#ffaaa0",
+    "priority": 0
+  },
+  {
+    "code": "CGT",
+    "name": "Đất do Nhà nước thu hồi chưa giao",
+    "color": "#ffffff",
+    "priority": 0
+  },
+  {
+    "code": "CHN",
+    "name": "Đất trồng cây hằng năm",
+    "color": "#fffc78",
+    "priority": 0
+  },
+  {
+    "code": "CNT",
+    "name": "Đất chăn nuôi tập trung",
+    "color": "#e6e682",
+    "priority": 0
+  },
+  {
+    "code": "CQA",
+    "name": "Đất quốc phòng, an ninh",
+    "color": "#ff7878",
+    "priority": 0
+  },
+  {
+    "code": "CQP",
+    "name": "Đất quốc phòng",
+    "color": "#ff6450",
+    "priority": 0
+  },
+  {
+    "code": "CSD",
+    "name": "Nhóm đất chưa sử dụng",
+    "color": "#ffffff",
+    "priority": 0
+  },
+  {
+    "code": "CSK",
+    "name": "Đất sản xuất, kinh doanh phi nông nghiệp",
+    "color": "#ffa0aa",
+    "priority": 0
+  },
+  {
+    "code": "DBV",
+    "name": "Đất công trình hạ tầng bưu chính, viễn thông",
+    "color": "#ffaaa0",
+    "priority": 0
+  },
+  {
+    "code": "DCH",
+    "name": "Đất chợ dân sinh, chợ đầu mối",
+    "color": "#ffaaa0",
+    "priority": 0
+  },
+  {
+    "code": "DCS",
+    "name": "Đất đồi núi chưa sử dụng",
+    "color": "#ffffff",
+    "priority": 0
+  },
+  {
+    "code": "DCT",
+    "name": "Đất công trình cấp nước, thoát nước",
+    "color": "#aaffff",
+    "priority": 0
+  },
+  {
+    "code": "DDD",
+    "name": "Đất có di tích lịch sử - văn hóa",
+    "color": "#ffaaa0",
+    "priority": 0
+  },
+  {
+    "code": "DGD",
+    "name": "Đất xây dựng cơ sở giáo dục và đào tạo",
+    "color": "#ffaaa0",
+    "priority": 0
+  },
+  {
+    "code": "DKH",
+    "name": "Đất xây dựng cơ sở khoa học và công nghệ",
+    "color": "#ffaaa0",
+    "priority": 0
+  },
+  {
+    "code": "DKV",
+    "name": "Đất khu vui chơi, giải trí công cộng",
+    "color": "#ffaaa0",
+    "priority": 0
+  },
+  {
+    "code": "DNL",
+    "name": "Đất công trình năng lượng, chiếu sáng",
+    "color": "#ffaaa0",
+    "priority": 0
+  },
+  {
+    "code": "DRA",
+    "name": "Đất công trình xử lý chất thải",
+    "color": "#cdaacd",
+    "priority": 0
+  },
+  {
+    "code": "DSK",
+    "name": "Đất xây dựng công trình sự nghiệp khác",
+    "color": "#ffaaa0",
+    "priority": 0
+  },
+  {
+    "code": "DSN",
+    "name": "Đất xây dựng công trình sự nghiệp",
+    "color": "#ffa0aa",
+    "priority": 0
+  },
+  {
+    "code": "DTT",
+    "name": "Đất xây dựng cơ sở thể dục, thể thao",
+    "color": "#ffaaa0",
+    "priority": 0
+  },
+  {
+    "code": "DVH",
+    "name": "Đất xây dựng cơ sở văn hóa",
+    "color": "#ffaaa0",
+    "priority": 0
+  },
+  {
+    "code": "DXH",
+    "name": "Đất xây dựng cơ sở xã hội",
+    "color": "#ffaaa0",
+    "priority": 0
+  },
+  {
+    "code": "DYT",
+    "name": "Đất xây dựng cơ sở y tế",
+    "color": "#ffaaa0",
+    "priority": 0
+  },
+  {
+    "code": "HNK",
+    "name": "Đất trồng cây hằng năm khác",
+    "color": "#fff0b4",
+    "priority": 0
+  },
+  {
+    "code": "LMU",
+    "name": "Đất làm muối",
+    "color": "#ffffff",
+    "priority": 0
+  },
+  {
+    "code": "LNP",
+    "name": "Đất lâm nghiệp",
+    "color": "#aaff32",
+    "priority": 0
+  },
+  {
+    "code": "LUK",
+    "name": "Đất trồng lúa còn lại",
+    "color": "#fffc96",
+    "priority": 0
+  },
+  {
+    "code": "MNC",
+    "name": "Đất có mặt nước chuyên dùng dạng ao, hồ",
+    "color": "#b4ffff",
+    "priority": 0
+  },
+  {
+    "code": "NTS",
+    "name": "Đất nuôi trồng thủy sản",
+    "color": "#aaffff",
+    "priority": 0
+  },
+  {
+    "code": "OTC",
+    "name": "Đất ở",
+    "color": "#ffb4ff",
+    "priority": 0
+  },
+  {
+    "code": "PNK",
+    "name": "Đất phi nông nghiệp khác",
+    "color": "#ffaaa0",
+    "priority": 0
+  },
+  {
+    "code": "PNN",
+    "name": "Nhóm đất phi nông nghiệp",
+    "color": "#ffff64",
+    "priority": 0
+  },
+  {
+    "code": "RDD",
+    "name": "Đất rừng đặc dụng",
+    "color": "#6eff64",
+    "priority": 0
+  },
+  {
+    "code": "RPH",
+    "name": "Đất rừng phòng hộ",
+    "color": "#beff1e",
+    "priority": 0
+  },
+  {
+    "code": "SKC",
+    "name": "Đất cơ sở sản xuất phi nông nghiệp",
+    "color": "#faaa00",
+    "priority": 0
+  },
+  {
+    "code": "SKK",
+    "name": "Đất khu công nghiệp",
+    "color": "#faaa00",
+    "priority": 0
+  },
+  {
+    "code": "SKN",
+    "name": "Đất cụm công nghiệp",
+    "color": "#faaa00",
+    "priority": 0
+  },
+  {
+    "code": "SKS",
+    "name": "Đất sử dụng cho hoạt động khoáng sản",
+    "color": "#cdaacd",
+    "priority": 0
+  },
+  {
+    "code": "TMD",
+    "name": "Đất thương mại, dịch vụ",
+    "color": "#faaa00",
+    "priority": 0
+  },
+  {
+    "code": "TON",
+    "name": "Đất tôn giáo",
+    "color": "#ffaaa0",
+    "priority": 0
+  },
+  {
+    "code": "TSC",
+    "name": "Đất xây dựng trụ sở cơ quan",
+    "color": "#ffaaa0",
+    "priority": 0
+  }
+]

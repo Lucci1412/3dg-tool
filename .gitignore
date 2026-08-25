@@ -1,0 +1,17 @@
+# Operating System Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.suo
+*.user
+
+# Log files & Scratch files
+*.log
+scratch/
+
+# Ignore Markdown documentation files
+*.md
