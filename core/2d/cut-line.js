@@ -10,9 +10,7 @@
 (function () {
     'use strict';
 
-    function log(...args) {
-        // console.log('[CutLine]', ...args);
-    }
+    function log() {}
 
     // ===== STATE MANAGEMENT =====
     let isCutting = false;

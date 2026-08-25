@@ -28,12 +28,7 @@
 (function () {
     'use strict';
 
-    // Flip to true while testing to see console diagnostics.
-    const DEBUG_MODE = true;
-
-    function log(...args) {
-        if (DEBUG_MODE) console.log('[SmartDrawer]', ...args);
-    }
+    function log() {}
 
     // ===== STATE MANAGEMENT =====
     let isSmartDrawing = false;
@@ -1091,33 +1086,6 @@
         });
     }
 
-    // DEBUG helper — dump every LineString feature across all target sources.
-    function debugDumpAllLineFeatures(map, label) {
-        if (!DEBUG_MODE || !map) return;
-        const { sources: allSources } = findAllTargetLineSources(map);
-        const rows = [];
-        allSources.forEach((source, si) => {
-            if (!source || !source.getFeatures) return;
-            source.getFeatures().forEach(f => {
-                const type = f.getGeometry?.()?.getType?.();
-                if (type !== 'LineString') return;
-                rows.push({
-                    sourceIndex: si,
-                    id: f.getId?.() || f.id_ || '(no id)',
-                    _editId: f.get?.('_editId') || '',
-                    isOurs: ourFeatureIds.has(f.get?.('_editId')),
-                    landType: f.get?.('landType') || '',
-                    Layer: f.get?.('Layer') || f.get?.('layer') || '',
-                    color: f.get?.('color') || f.get?.('stroke') || '',
-                    name: f.get?.('name') || '',
-                    numVertices: f.getGeometry()?.getCoordinates?.()?.length || 0
-                });
-            });
-        });
-        console.log(`[SmartDrawer][DEBUG] ${label} — ${rows.length} LineString feature(s):`);
-        console.table(rows);
-    }
-
     // Live guard: catches a native stray line the instant it's added, instead
     // of waiting for the post-finish cleanup timers.
     function attachStrayLineGuards(map) {
@@ -1223,8 +1191,6 @@
         const map = window.__topoMap || (window.__topoFindOlMap && window.__topoFindOlMap());
         if (!map) return;
 
-        debugDumpAllLineFeatures(map, 'BEFORE finish (baseline)');
-
         const scale = getMeterScaleFactor(cleanPoints[0]);
         const scaledDist = currentDistance * scale;
 
@@ -1299,11 +1265,9 @@
 
         setTimeout(() => {
             cleanupNative3dgDefaultLine(map);
-            debugDumpAllLineFeatures(map, 'AFTER cleanup @100ms');
         }, 100);
         setTimeout(() => {
             cleanupNative3dgDefaultLine(map);
-            debugDumpAllLineFeatures(map, 'AFTER cleanup @400ms (final)');
         }, 400);
 
         activePoints = [];

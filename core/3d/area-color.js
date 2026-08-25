@@ -11,12 +11,7 @@
 (function () {
     'use strict';
 
-    // Đổi thành false để tắt log khi đã xác định xong nguyên nhân
-    const DEBUG = true;
-
-    function log(...args) {
-        if (DEBUG) console.log('[AreaColor3D]', ...args);
-    }
+    function log() {}
 
     // ===== STATE MANAGEMENT =====
     let isDrawingRegion = false;

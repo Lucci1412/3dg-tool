@@ -973,3 +973,189 @@
     background: #fee2e2;
     border-color: #fca5a5;
 }
+
+/* Quick Settings Modal for Shortcuts */
+.topo-settings-modal {
+    position: absolute;
+    top: 40px;
+    left: 0;
+    right: 0;
+    background: #ffffff;
+    border-bottom: 1px solid #e2e8f0;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    animation: topoSlideDown 0.2s ease-out;
+}
+
+.topo-settings-modal.topo-modal-hidden {
+    display: none !important;
+}
+
+@keyframes topoSlideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.topo-settings-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.topo-settings-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #0f172a;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.topo-settings-body {
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: #ffffff;
+}
+
+.topo-settings-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.topo-settings-label {
+    display: flex;
+    flex-direction: column;
+    font-size: 12px;
+    color: #334155;
+}
+
+.topo-settings-sub {
+    font-size: 10px;
+    color: #94a3b8;
+    margin-top: 1px;
+}
+
+.topo-key-recorder-wrap {
+    flex-shrink: 0;
+}
+
+.topo-key-recorder-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-family: inherit;
+}
+
+.topo-key-recorder-btn:hover {
+    background: #e2e8f0;
+    border-color: #94a3b8;
+}
+
+.topo-key-recorder-btn.is-recording {
+    background: #eff6ff;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    animation: topoPulse 1.5s infinite;
+}
+
+@keyframes topoPulse {
+    0%, 100% { border-color: #3b82f6; }
+    50% { border-color: #60a5fa; }
+}
+
+.topo-key-badge {
+    font-size: 11px;
+    font-weight: 700;
+    color: #0284c7;
+    background: #e0f2fe;
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid #bae6fd;
+}
+
+.topo-key-recorder-btn.is-recording .topo-key-badge {
+    color: #2563eb;
+    background: #dbeafe;
+    border-color: #bfdbfe;
+}
+
+.topo-quick-shortcuts {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 2px;
+}
+
+.topo-quick-title {
+    font-size: 11px;
+    color: #64748b;
+    font-weight: 600;
+}
+
+.topo-quick-chips {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.topo-chip-btn {
+    padding: 2px 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #475569;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.topo-chip-btn:hover {
+    color: #0284c7;
+    background: #f0f9ff;
+    border-color: #bae6fd;
+}
+
+.topo-settings-hint {
+    font-size: 11px;
+    color: #64748b;
+    background: #f8fafc;
+    padding: 6px 8px;
+    border-radius: 4px;
+    border: 1px dashed #cbd5e1;
+    margin-top: 2px;
+}
+
+.topo-settings-hint kbd {
+    background: #e2e8f0;
+    border: 1px solid #cbd5e1;
+    border-radius: 3px;
+    padding: 1px 4px;
+    font-size: 10px;
+    font-family: monospace;
+    color: #0f172a;
+    font-weight: 700;
+}

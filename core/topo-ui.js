@@ -9,7 +9,7 @@
 (function () {
     'use strict';
 
-    function log() {}
+    function log() { }
 
     let isPanelOpen = false;
     let isMinimized = false;
@@ -23,15 +23,15 @@
     function detectCurrentAppMode() {
         // 1. Kiểm tra DOM Canvas thực tế trên trang (Độ chính xác cao nhất)
         const hasCesium = Boolean(
-            document.querySelector('canvas.cesium-widget') || 
-            document.querySelector('.cesium-viewer') || 
+            document.querySelector('canvas.cesium-widget') ||
+            document.querySelector('.cesium-viewer') ||
             document.querySelector('.cesium-widget') ||
             document.querySelector('canvas[data-engine="three.js"]') ||
             window.viewer?.scene ||
             window.__topo3dViewer
         );
         const hasOl = Boolean(
-            document.querySelector('.ol-viewport') || 
+            document.querySelector('.ol-viewport') ||
             document.querySelector('.ol-unselectable')
         );
 
@@ -88,15 +88,51 @@
         panel.innerHTML = `
             <div class="topo-header" id="topo-header" title="Giữ chuột để kéo di chuyển bảng">
                 <div class="topo-title">
-                    <span class="topo-icon">🔍</span>
-                    <span>Kiểm Tra Topology</span>
+                   
+                    <span>Check Topology</span>
                     <span id="topo-badge-mode">
                         <span class="topo-badge-2d">2D PREMIUM</span>
                     </span>
                 </div>
                 <div class="topo-header-actions">
+                    <button class="topo-btn-icon" id="topo-btn-settings" title="Cài đặt phím tắt nhanh (⚙️)">⚙️</button>
                     <button class="topo-btn-icon" id="topo-btn-minimize" title="Thu nhỏ / Mở rộng (—)">—</button>
                     <button class="topo-btn-icon" id="topo-btn-close" title="Đóng (✕)">✕</button>
+                </div>
+            </div>
+
+            <!-- Quick Settings Modal for Shortcuts -->
+            <div class="topo-settings-modal topo-modal-hidden" id="topo-settings-modal">
+                <div class="topo-settings-header">
+                    <div class="topo-settings-title">
+                        <span>⚙️ Cài Đặt Phím Tắt Nhanh</span>
+                    </div>
+                    <button class="topo-btn-icon" id="topo-settings-close" title="Đóng">✕</button>
+                </div>
+                <div class="topo-settings-body">
+                    <div class="topo-settings-row">
+                        <div class="topo-settings-label">
+                            <span>Phím bật <b>Chọn / Sửa</b>:</span>
+                            <small class="topo-settings-sub">Nhấn phím tắt để lập tức chuyển về chế độ Chọn/Sửa của 3DG</small>
+                        </div>
+                        <div class="topo-key-recorder-wrap">
+                            <button type="button" class="topo-key-recorder-btn" id="topo-key-recorder-btn" title="Click để đổi phím tắt">
+                                <span class="topo-key-badge" id="topo-key-badge">Space</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="topo-quick-shortcuts">
+                        <span class="topo-quick-title">Gợi ý:</span>
+                        <div class="topo-quick-chips">
+                            <button type="button" class="topo-chip-btn" data-key="Space">Space</button>
+                            <button type="button" class="topo-chip-btn" data-key="S">S</button>
+                            <button type="button" class="topo-chip-btn" data-key="V">V</button>
+                            <button type="button" class="topo-chip-btn" data-key="Escape">Esc</button>
+                        </div>
+                    </div>
+                    <div class="topo-settings-hint" id="topo-settings-hint">
+                        💡 <b>Mẹo:</b> Nhấn phím <kbd id="topo-settings-kbd">Space</kbd> bất kỳ lúc nào để thoát vẽ hoặc bật chế độ Chọn/Sửa.
+                    </div>
                 </div>
             </div>
 
@@ -258,6 +294,130 @@
             });
         }
 
+        // 0.5 Settings modal & Shortcut manager
+        const settingsBtn = document.getElementById('topo-btn-settings');
+        const settingsModal = document.getElementById('topo-settings-modal');
+        const settingsCloseBtn = document.getElementById('topo-settings-close');
+        const keyRecorderBtn = document.getElementById('topo-key-recorder-btn');
+        const keyBadge = document.getElementById('topo-key-badge');
+        const settingsKbd = document.getElementById('topo-settings-kbd');
+        const quickChips = document.querySelectorAll('.topo-chip-btn');
+
+        let isRecordingKey = false;
+        let selectEditShortcut = localStorage.getItem('topo_shortcut_select_edit') || 'Space';
+
+        function updateKeyDisplay(keyName) {
+            selectEditShortcut = keyName;
+            localStorage.setItem('topo_shortcut_select_edit', keyName);
+            const displayTxt = (keyName === ' ' || keyName === 'Space') ? 'Space' : keyName;
+            if (keyBadge) keyBadge.textContent = displayTxt;
+            if (settingsKbd) settingsKbd.textContent = displayTxt;
+        }
+        updateKeyDisplay(selectEditShortcut);
+
+        if (settingsBtn && settingsModal) {
+            settingsBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const isHidden = settingsModal.classList.contains('topo-modal-hidden');
+                if (isHidden) {
+                    settingsModal.classList.remove('topo-modal-hidden');
+                    settingsBtn.classList.add('--active');
+                } else {
+                    settingsModal.classList.add('topo-modal-hidden');
+                    settingsBtn.classList.remove('--active');
+                    if (isRecordingKey) stopRecordingKey();
+                }
+            });
+        }
+
+        if (settingsCloseBtn && settingsModal) {
+            settingsCloseBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                settingsModal.classList.add('topo-modal-hidden');
+                settingsBtn?.classList.remove('--active');
+                if (isRecordingKey) stopRecordingKey();
+            });
+        }
+
+        function startRecordingKey() {
+            isRecordingKey = true;
+            if (keyRecorderBtn) keyRecorderBtn.classList.add('is-recording');
+            if (keyBadge) keyBadge.textContent = '... Nhấn phím ...';
+        }
+
+        function stopRecordingKey() {
+            isRecordingKey = false;
+            if (keyRecorderBtn) keyRecorderBtn.classList.remove('is-recording');
+            updateKeyDisplay(selectEditShortcut);
+        }
+
+        if (keyRecorderBtn) {
+            keyRecorderBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (isRecordingKey) {
+                    stopRecordingKey();
+                } else {
+                    startRecordingKey();
+                }
+            });
+        }
+
+        quickChips.forEach(chip => {
+            chip.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const chosenKey = chip.dataset.key || 'Space';
+                if (isRecordingKey) isRecordingKey = false;
+                if (keyRecorderBtn) keyRecorderBtn.classList.remove('is-recording');
+                updateKeyDisplay(chosenKey);
+            });
+        });
+
+        function isTextEditingElement(el) {
+            if (!el) return false;
+            if (el.isContentEditable) return true;
+            const tag = (el.tagName || '').toLowerCase();
+            if (tag === 'textarea') return true;
+            if (tag === 'input') {
+                const type = (el.type || '').toLowerCase();
+                // Ignore text-typing fields only (never block radio/checkbox or general buttons)
+                if (['text', 'password', 'search', 'email', 'number', 'tel', 'url'].includes(type)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Global Keydown Handler for recording & triggering shortcut
+        window.addEventListener('keydown', (e) => {
+            // If recording key inside settings modal
+            if (isRecordingKey) {
+                e.preventDefault();
+                e.stopPropagation();
+                let pressedKey = e.code === 'Space' ? 'Space' : (e.key === ' ' ? 'Space' : (e.key.length === 1 ? e.key.toUpperCase() : e.key));
+                if (pressedKey === 'Escape') pressedKey = 'Escape';
+                updateKeyDisplay(pressedKey);
+                isRecordingKey = false;
+                if (keyRecorderBtn) keyRecorderBtn.classList.remove('is-recording');
+                return;
+            }
+
+            // Do not block when typing in text fields
+            if (isTextEditingElement(e.target) || isTextEditingElement(document.activeElement)) return;
+
+            const targetKey = selectEditShortcut || 'Space';
+            const isMatch = (targetKey === 'Space' && (e.code === 'Space' || e.key === ' '))
+                || (e.key && e.key.toUpperCase() === targetKey.toUpperCase())
+                || (e.code && e.code.toUpperCase() === targetKey.toUpperCase());
+
+            if (isMatch) {
+                e.preventDefault(); // Prevent page scrolling on Space
+                e.stopPropagation();
+                cancelAllInteractiveModes();
+                setActiveModeButton('topo-btn-scan');
+                ensureNative3dgSelectEditModeActive();
+            }
+        }, true);
+
         // 1. Minimize button (—)
         if (minimizeBtn && body) {
             minimizeBtn.addEventListener('click', (e) => {
@@ -400,7 +560,7 @@
             setTimeout(() => {
                 try {
                     if (panel.style.height !== 'auto') panel.style.height = 'auto';
-                } catch(e) {}
+                } catch (e) { }
             }, 360);
         }
 
@@ -457,6 +617,14 @@
 
         function ensureNative3dgSelectEditModeActive() {
             try {
+                // 1. Dispatch ESC to cancel drawing on OpenLayers / window
+                try {
+                    const esc = new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true });
+                    window.dispatchEvent(esc);
+                    document.dispatchEvent(esc);
+                } catch (e) { }
+
+                // 2. Ensure 3DG Edit Drawer is open
                 const isPanelOpen = Array.from(document.querySelectorAll('div, span, h1, h2, h3, header'))
                     .some(el => (el.textContent || '').trim().includes('Biên tập dữ liệu'));
 
@@ -474,7 +642,35 @@
                     }
                 }
 
-                const trySelectEdit = () => {
+                // 3. Dispatch null to drawingMode state hook in Dc (hookIdx 48 or any hook holding drawingMode string)
+                const root = document.getElementById('root') || document.body;
+                const candidates = [root, ...Array.from(document.querySelectorAll('div, section, aside, main, nav, ul, li'))];
+
+                for (const el of candidates) {
+                    const key = Object.keys(el).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactContainer'));
+                    if (!key) continue;
+
+                    let fiber = el[key];
+                    for (let depth = 0; depth < 120 && fiber; depth++) {
+                        if (fiber.memoizedProps?.onFinishDrawing || fiber.memoizedProps?.mapInstance || fiber.elementType?.name === 'Dc') {
+                            let s = fiber.memoizedState;
+                            let idx = 0;
+                            while (s) {
+                                if (s.queue && typeof s.queue.dispatch === 'function') {
+                                    if (idx === 48 || s.memoizedState === 'LineString' || s.memoizedState === 'Point' || s.memoizedState === 'Polygon') {
+                                        try { s.queue.dispatch(null); } catch (e) { }
+                                    }
+                                }
+                                idx++;
+                                s = s.next;
+                            }
+                        }
+                        fiber = fiber.return;
+                    }
+                }
+
+                // 4. Click the DOM element directly
+                const trySelectEditDOM = () => {
                     const labels = Array.from(document.querySelectorAll('.ant-segmented-item, label'));
                     const selectEditLabel = labels.find(el => {
                         const text = (el.textContent || '').trim();
@@ -485,19 +681,19 @@
 
                     if (selectEditLabel) {
                         const input = selectEditLabel.querySelector('input') || selectEditLabel.closest('label')?.querySelector('input');
-                        if (input && !input.checked) {
-                            selectEditLabel.click();
-                            input.click();
+                        if (input) {
+                            input.checked = true;
+                            input.dispatchEvent(new Event('input', { bubbles: true }));
                             input.dispatchEvent(new Event('change', { bubbles: true }));
-                        } else if (!selectEditLabel.classList.contains('ant-segmented-item-selected')) {
-                            selectEditLabel.click();
                         }
+                        selectEditLabel.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+                        selectEditLabel.click();
                     }
                 };
 
-                trySelectEdit();
-                setTimeout(trySelectEdit, 200);
-                setTimeout(trySelectEdit, 500);
+                trySelectEditDOM();
+                setTimeout(trySelectEditDOM, 80);
+                setTimeout(trySelectEditDOM, 250);
             } catch (e) {
                 console.warn('[CheckTopo] Failed to auto-trigger native "Chọn/Sửa" mode:', e);
             }
@@ -1255,10 +1451,10 @@
         setTimeout(() => {
             try {
                 if (statsEl) statsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            } catch (e) {}
+            } catch (e) { }
             try {
                 if (listEl) listEl.scrollTo({ top: 0, behavior: 'smooth' });
-            } catch (e) {}
+            } catch (e) { }
             if (typeof animatePanelHeightToContent === 'function') animatePanelHeightToContent();
         }, 60);
     }

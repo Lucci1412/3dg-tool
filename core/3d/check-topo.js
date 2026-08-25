@@ -10,9 +10,7 @@
 (function () {
     'use strict';
 
-    function log(...args) {
-        // console.log('[CheckTopo3D]', ...args);
-    }
+    function log() {}
 
     // ===== SPATIAL UTILITIES & METRIC PROJECTION =====
     function createProjector(centerLat) {

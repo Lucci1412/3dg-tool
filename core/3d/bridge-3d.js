@@ -9,9 +9,7 @@
 (function () {
     'use strict';
 
-    function log(...args) {
-        // console.log('[Bridge3D]', ...args);
-    }
+    function log() {}
 
     // ===== CESIUM LIB DETECTOR =====
     function getCesium() {
