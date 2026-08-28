@@ -760,6 +760,73 @@
         }
     }
 
+    function removeFeaturesBatchFrom3dgReactState(featureIds) {
+        if (!featureIds || (Array.isArray(featureIds) && featureIds.length === 0) || (featureIds instanceof Set && featureIds.size === 0)) return;
+        const idSet = (featureIds instanceof Set) ? featureIds : new Set(Array.from(featureIds).map(String));
+
+        // 1. Redux Store
+        if (window.store && typeof window.store.dispatch === 'function') {
+            idSet.forEach(fid => {
+                try {
+                    window.store.dispatch({ type: 'groups/remove', payload: fid });
+                    window.store.dispatch({ type: 'groups/deleteGroup', payload: fid });
+                    window.store.dispatch({ type: 'features/remove', payload: fid });
+                } catch(e) {}
+            });
+        }
+
+        // 2. Traversal of React Fiber tree
+        const groupsQueues = get3dgGroupsQueues();
+        groupsQueues.forEach(q => {
+            try {
+                q.dispatch(prev => {
+                    if (!Array.isArray(prev)) return prev;
+                    return prev.filter(item => {
+                        const id = (item.id || item._id || item.group?.id || item.geojsonFeatureObject?.id)?.toString();
+                        return !idSet.has(id);
+                    });
+                });
+            } catch (e) { }
+        });
+
+        const root = document.getElementById('root') || document.body;
+        const candidates = [root, ...Array.from(document.querySelectorAll('div, section, aside, main, nav, ul, li'))];
+        const dispatchedQueues = new Set(groupsQueues);
+
+        for (const el of candidates) {
+            const key = Object.keys(el).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactContainer'));
+            if (!key) continue;
+
+            let node = el[key];
+            for (let depth = 0; depth < 120 && node; depth++) {
+                try {
+                    let s = node.memoizedState;
+                    while (s) {
+                        if (s.queue && typeof s.queue.dispatch === 'function' && Array.isArray(s.memoizedState)) {
+                            if (!dispatchedQueues.has(s.queue)) {
+                                const arr = s.memoizedState;
+                                if (arr.length > 0 && (arr[0]?.id || arr[0]?.group || arr[0]?.mode)) {
+                                    dispatchedQueues.add(s.queue);
+                                    s.queue.dispatch(prev => {
+                                        if (Array.isArray(prev)) {
+                                            return prev.filter(item => {
+                                                const id = (item.id || item._id || item.group?.id || item.geojsonFeatureObject?.id)?.toString();
+                                                return !idSet.has(id);
+                                            });
+                                        }
+                                        return prev;
+                                    });
+                                }
+                            }
+                        }
+                        s = s.next;
+                    }
+                } catch (e) {}
+                node = node.return;
+            }
+        }
+    }
+
     // ===== QUICK TRASH BIN BUTTON INJECTION FOR 3DG LIST ITEMS =====
     function extractCleanTitle(rawText) {
         if (!rawText) return '';
@@ -1198,6 +1265,7 @@
     window.__topoClearHighlight = clearAllErrorOverlays;
     window.__topoSyncFeatureToReactState = syncFeatureTo3dgReactState;
     window.__topoRemoveFeatureFromReactState = removeFeatureFrom3dgReactState;
+    window.__topoRemoveFeaturesBatchFromReactState = removeFeaturesBatchFrom3dgReactState;
     window.__topoToggleHighlight = toggleErrorHighlight;
 
     // Auto init check

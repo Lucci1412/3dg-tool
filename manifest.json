@@ -15,6 +15,7 @@
         "core/2d/area-color.js",
         "core/2d/smart-draw.js",
         "core/2d/cut-line.js",
+        "core/2d/dedup-lines.js",
         "core/3d/bridge-3d.js",
         "core/3d/check-topo.js",
         "core/3d/area-color.js",

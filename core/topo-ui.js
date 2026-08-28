@@ -143,6 +143,9 @@
                         <button class="topo-btn-primary" id="topo-btn-scan">
                             <span>Check Topo</span>
                         </button>
+                        <button class="topo-btn-secondary" id="topo-btn-dedup-line" title="Xóa toàn bộ các nét vẽ trùng lặp, chỉ giữ lại 1 nét duy nhất (Dedup Lines)">
+                            <span>Xóa Trùng</span>
+                        </button>
                         <button class="topo-btn-secondary" id="topo-btn-smart-draw" title="Tự động vẽ đường chính & đường song song (Smart Drawer)">
                             <span>Vẽ Đường</span>
                         </button>
@@ -279,6 +282,7 @@
         const minimizeBtn = document.getElementById('topo-btn-minimize');
         const body = document.getElementById('topo-body');
         const scanBtn = document.getElementById('topo-btn-scan');
+        const dedupLineBtn = document.getElementById('topo-btn-dedup-line');
         const smartDrawBtn = document.getElementById('topo-btn-smart-draw');
         const cutLineBtn = document.getElementById('topo-btn-cut-line');
 
@@ -461,6 +465,7 @@
             }
             const newMode = detectCurrentAppMode();
             const badgeEl = document.getElementById('topo-badge-mode');
+            const dedupLineEl = document.getElementById('topo-btn-dedup-line');
             const smartDrawEl = document.getElementById('topo-btn-smart-draw');
             const cutLineEl = document.getElementById('topo-btn-cut-line');
             const areaDeleteEl = document.getElementById('topo-btn-area-delete');
@@ -479,6 +484,7 @@
                 }
             }
 
+            if (dedupLineEl) dedupLineEl.style.display = is3d ? 'none' : '';
             if (smartDrawEl) smartDrawEl.style.display = is3d ? 'none' : '';
             if (cutLineEl) cutLineEl.style.display = is3d ? 'none' : '';
             if (areaDeleteEl) areaDeleteEl.style.display = is3d ? 'none' : '';
@@ -520,7 +526,8 @@
 
         function setActiveModeButton(activeId) {
             if (!scanBtn || !smartDrawBtn || !cutLineBtn || !areaColorBtn || !areaDeleteBtn) return;
-            [scanBtn, smartDrawBtn, cutLineBtn, areaColorBtn, areaDeleteBtn].forEach(btn => {
+            const allBtns = [scanBtn, dedupLineBtn, smartDrawBtn, cutLineBtn, areaColorBtn, areaDeleteBtn].filter(Boolean);
+            allBtns.forEach(btn => {
                 if (btn.id === activeId) {
                     btn.classList.remove('topo-btn-secondary');
                     btn.classList.add('topo-btn-primary');
@@ -856,6 +863,98 @@
                 updateColorBadgesAndDrawer();
             });
         });
+
+        // 5.5 Dedup Lines button (Xóa Nét Trùng)
+        if (dedupLineBtn) {
+            dedupLineBtn.addEventListener('click', async () => {
+                if (dedupLineBtn.disabled) return;
+                cancelAllInteractiveModes();
+                setUIVisibilityMode('scan');
+
+                const statsEl = document.getElementById('topo-stats');
+                const statsText = document.getElementById('topo-stats-text');
+                const listEl = document.getElementById('topo-error-list');
+                if (statsEl) statsEl.style.display = 'block';
+
+                const updateProgress = (pct, text) => {
+                    if (statsText) {
+                        statsText.innerHTML = `
+                            <div class="topo-progress-wrapper">
+                                <div class="topo-progress-bar-bg">
+                                    <div class="topo-progress-bar-fill" style="width: ${pct}%;"></div>
+                                </div>
+                                <div class="topo-progress-text">${text} (${pct}%)</div>
+                            </div>
+                        `;
+                    }
+                };
+
+                dedupLineBtn.disabled = true;
+                dedupLineBtn.innerHTML = `<span>Đang Quét...</span>`;
+
+                try {
+                    if (!window.__topoFindDuplicateLines || !window.__topoExecuteDedupLines) {
+                        alert('Chưa nạp được module Xóa Trùng Nét!');
+                        return;
+                    }
+
+                    const scanResult = await window.__topoFindDuplicateLines({
+                        tolerance: 0.05,
+                        onProgress: async (pct, msg) => updateProgress(pct, msg)
+                    });
+
+                    const { duplicateGroups, totalDuplicatesToRemove, totalLines } = scanResult;
+
+                    if (!duplicateGroups || duplicateGroups.length === 0 || totalDuplicatesToRemove === 0) {
+                        statsText.innerHTML = `<span class="topo-text-success">✅ Không phát hiện nét vẽ nào bị trùng lặp (Tổng số: ${totalLines} đường).</span>`;
+                        if (listEl) {
+                            listEl.innerHTML = `
+                                <div class="topo-empty-state topo-success">
+                                    Toàn bộ ${totalLines} đường vẽ đều là duy nhất, không phát hiện trùng lặp.
+                                </div>
+                            `;
+                        }
+                        return;
+                    }
+
+                    const confirmed = confirm(`🔍 Phát hiện ${duplicateGroups.length} nhóm đường trùng nhau (Tổng cộng ${totalDuplicatesToRemove} đường dư thừa trên ${totalLines} đường).\n\nBạn có muốn XÓA ${totalDuplicatesToRemove} đường trùng và chỉ GIỮ LẠI 1 đường duy nhất cho mỗi nét không?`);
+
+                    if (!confirmed) {
+                        statsText.innerHTML = `<span class="topo-text-muted">Đã hủy thao tác xóa nét trùng (${duplicateGroups.length} nhóm trùng được giữ nguyên).</span>`;
+                        return;
+                    }
+
+                    updateProgress(90, `Đang xóa ${totalDuplicatesToRemove} nét trùng...`);
+
+                    const execResult = await window.__topoExecuteDedupLines({
+                        tolerance: 0.05,
+                        onProgress: async (pct, msg) => updateProgress(pct, msg)
+                    });
+
+                    statsText.innerHTML = `<span class="topo-text-success">✅ Đã xóa thành công <b>${execResult.deletedCount}</b> nét trùng! Giữ lại ${execResult.keptCount} đường duy nhất.</span>`;
+
+                    if (listEl) {
+                        listEl.innerHTML = `
+                            <div class="topo-empty-state topo-success">
+                                🎉 Đã dọn sạch <b>${execResult.deletedCount}</b> đường vẽ trùng lặp.<br>
+                                Tổng số đường hiện tại: <b>${totalLines - execResult.deletedCount}</b> đường.
+                            </div>
+                        `;
+                    }
+
+                    // Reset badge topo
+                    const fabBadge = document.getElementById('topo-fab-badge');
+                    if (fabBadge) fabBadge.style.display = 'none';
+
+                } catch (err) {
+                    console.error('[DedupLines] Error:', err);
+                    if (statsText) statsText.innerHTML = `<span class="topo-text-danger">❌ Lỗi: ${err.message || err}</span>`;
+                } finally {
+                    dedupLineBtn.disabled = false;
+                    dedupLineBtn.innerHTML = `<span>Xóa Trùng</span>`;
+                }
+            });
+        }
 
         // 6. Smart Draw button (Hỗ trợ click Bật/Tắt chủ động)
         if (smartDrawBtn) {
