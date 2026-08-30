@@ -1,0 +1,24 @@
+{
+  "name": "3dg-tool",
+  "version": "1.0.0",
+  "description": "Tien ich Chrome danh rieng cho **3dg.vn**, ho tro kiem tra loi topology, ve duong song song thong minh, doi mau vung va xoa nhanh theo vung.",
+  "main": "content.js",
+  "scripts": {
+    "start:bot": "node gemini-playwright-bot.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Lucci1412/3dg-tool.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Lucci1412/3dg-tool/issues"
+  },
+  "homepage": "https://github.com/Lucci1412/3dg-tool#readme",
+  "dependencies": {
+    "playwright-core": "^1.62.1"
+  }
+}

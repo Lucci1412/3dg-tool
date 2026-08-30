@@ -18,3 +18,12 @@ scratch/
 
 # MCP & Playwright artifacts
 .playwright-mcp/
+
+# Machine Learning Models & Datasets (> 100MB)
+models/
+*.pt
+*.pth
+*.onnx
+yolo_dataset/
+data/
+

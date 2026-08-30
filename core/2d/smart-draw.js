@@ -692,17 +692,18 @@
                 return;
             }
             try {
+                if (layer.getVisible && !layer.getVisible()) return;
                 const src = layer.getSource?.();
                 if (!src || typeof src.addFeature !== 'function' || !src.getFeatures) return;
 
                 const layerId = String(layer.get?.('id') || layer.get?.('name') || layer.get?.('title') || '').toLowerCase();
-                if (layerId.includes('topo') || layerId.includes('highlight') || layerId.includes('overlay') || layerId.includes('canvas')) return;
+                if (layerId.includes('topo') || layerId.includes('highlight') || layerId.includes('overlay') || layerId.includes('canvas') || layerId.includes('shared')) return;
 
                 const features = src.getFeatures();
                 let hasLineString = false;
                 for (const f of features) {
                     const type = f.getGeometry?.()?.getType?.();
-                    if (type === 'LineString') {
+                    if (type === 'LineString' || type === 'Polygon' || type === 'MultiPolygon') {
                         hasLineString = true;
                         if (!sampleLineFeature) sampleLineFeature = f;
                         break;
@@ -713,8 +714,10 @@
                     sources.push(src);
                 }
 
-                if (hasLineString || layerId.includes('edit') || layerId.includes('draw') || layerId.includes('main') || layerId.includes('vector')) {
-                    if (!primarySource) primarySource = src;
+                if (features.length > 0 || hasLineString || layerId.includes('edit') || layerId.includes('draw') || layerId.includes('main') || layerId.includes('vector')) {
+                    if (!primarySource || features.length > (primarySource.getFeatures ? primarySource.getFeatures().length : 0)) {
+                        primarySource = src;
+                    }
                 }
             } catch (e) { }
         }
@@ -842,16 +845,48 @@
             this._coords = coordinates || [];
         }
         getType() { return 'LineString'; }
+        getLayout() { return 'XY'; }
+        getStride() { return 2; }
         getCoordinates() { return this._coords; }
         setCoordinates(coords) {
             this._coords = coords;
             this.changed();
+        }
+        getFlatCoordinates() {
+            const flat = [];
+            for (let i = 0; i < this._coords.length; i++) {
+                const pt = this._coords[i];
+                flat.push(pt[0], pt[1]);
+            }
+            return flat;
+        }
+        getEnds() {
+            return [this._coords.length * 2];
+        }
+        getFirstCoordinate() {
+            return this._coords[0] || [0, 0];
+        }
+        getLastCoordinate() {
+            return this._coords[this._coords.length - 1] || [0, 0];
+        }
+        getFlatMidpoint() {
+            if (this._coords.length === 0) return [0, 0];
+            return this._coords[Math.floor(this._coords.length / 2)];
         }
         getExtent() {
             if (!this._coords || this._coords.length === 0) return [0, 0, 0, 0];
             const xs = this._coords.map(c => c[0]);
             const ys = this._coords.map(c => c[1]);
             return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+        }
+        simplifyTransformed(squaredTolerance, opt_dest) {
+            return this;
+        }
+        getSimplifiedGeometry(squaredTolerance) {
+            return this;
+        }
+        transform(source, dest) {
+            return this;
         }
         clone() {
             return new TopoPolylineGeometry(this._coords.map(c => [...c]));
@@ -863,20 +898,31 @@
     }
 
     class TopoMapFeature extends TopoBaseEventTarget {
-        constructor(geometry, properties = {}) {
+        constructor(geometryOrOptions = null, properties = {}) {
             super();
-            this._geometry = geometry;
-            this._properties = { ...properties };
-            this._id = properties.id || properties._editId || generateUUID();
+            let geom = null;
+            let props = {};
+            if (geometryOrOptions && typeof geometryOrOptions.getType === 'function') {
+                geom = geometryOrOptions;
+                props = { ...properties };
+            } else if (geometryOrOptions && typeof geometryOrOptions === 'object') {
+                props = { ...geometryOrOptions, ...properties };
+                geom = props.geometry || null;
+            }
+            this._geometry = geom;
+            this._properties = { ...props, geometry: geom };
+            this._id = props.id || props._editId || generateUUID();
             this.id_ = this._id;
             this._style = null;
         }
+        getGeometryName() { return 'geometry'; }
         getGeometry() { return this._geometry; }
         setGeometry(geom) {
             this._geometry = geom;
+            this._properties.geometry = geom;
             this.changed();
         }
-        getId() { return this._id; }
+        getId() { return this.id_ || this._id; }
         setId(id) {
             this._id = id;
             this.id_ = id;
@@ -898,10 +944,58 @@
         }
         setProperties(props) {
             this._properties = { ...this._properties, ...props };
+            if (props.geometry) this._geometry = props.geometry;
             this.changed();
         }
         getStyle() { return this._style; }
         setStyle(st) { this._style = st; this.changed(); }
+        getStyleFunction() { return null; }
+    }
+
+    function getOlNativeClasses(map) {
+        const classes = {
+            Feature: window.ol?.Feature,
+            LineString: window.ol?.geom?.LineString,
+            Polygon: window.ol?.geom?.Polygon,
+            Style: window.ol?.style?.Style,
+            Stroke: window.ol?.style?.Stroke,
+            Fill: window.ol?.style?.Fill
+        };
+        if (classes.Feature && classes.LineString && classes.Polygon) return classes;
+
+        try {
+            map.getLayers().forEach(layer => {
+                if (classes.Feature && classes.LineString && classes.Polygon) return;
+                const src = layer.getSource?.();
+                if (!src || !src.getFeatures) return;
+                const feats = src.getFeatures();
+                for (const f of feats) {
+                    if (!classes.Feature) classes.Feature = f.constructor;
+                    const geom = f.getGeometry?.();
+                    if (geom) {
+                        const type = geom.getType?.();
+                        if (type === 'LineString' && !classes.LineString) {
+                            classes.LineString = geom.constructor;
+                        } else if (type === 'Polygon' && !classes.Polygon) {
+                            classes.Polygon = geom.constructor;
+                        }
+                    }
+                    const styleVal = typeof f.getStyle === 'function' ? f.getStyle() : null;
+                    const styleInst = typeof styleVal === 'function' ? styleVal(f, 1) : styleVal;
+                    const styleItem = Array.isArray(styleInst) ? styleInst[0] : styleInst;
+                    if (styleItem) {
+                        if (!classes.Style) classes.Style = styleItem.constructor;
+                        if (typeof styleItem.getStroke === 'function' && !classes.Stroke) {
+                            const strokeVal = styleItem.getStroke();
+                            if (strokeVal) classes.Stroke = strokeVal.constructor;
+                        }
+                    }
+                }
+            });
+        } catch (e) {
+            console.error('Error extracting native OL classes:', e);
+        }
+        return classes;
     }
 
     // ===== ADD POLYLINE FEATURE WITH DYNAMIC LAND TYPE & COLOR =====
@@ -909,7 +1003,7 @@
         const clean = sanitizeCoords(coords);
         if (!map || !clean || clean.length < 2) return null;
 
-        const ol = window.ol || window.openlayers;
+        const olClasses = getOlNativeClasses(map);
         const { primary: layerSource, sources: allSources, sample: sampleFeature } = findAllTargetLineSources(map);
 
         const drawSource = getDrawInteractionSource(map);
@@ -953,33 +1047,20 @@
 
             if (!newGeom && resolvedSample) {
                 try {
-                    const LineStringClass = resolvedSample.getGeometry()?.constructor;
+                    const LineStringClass = resolvedSample.getGeometry()?.constructor || olClasses.LineString;
                     if (LineStringClass) {
                         newGeom = new LineStringClass(clean, 'XY');
                     }
                 } catch (e) { }
             }
 
-            if (!newGeom && ol?.geom?.LineString) {
-                try { newGeom = new ol.geom.LineString(clean); } catch (e) { }
+            if (!newGeom && olClasses.LineString) {
+                try { newGeom = new olClasses.LineString(clean); } catch (e) { }
             }
 
-            // Fallback geometry if OpenLayers native classes are inaccessible
-            if (!newGeom) {
-                newGeom = new TopoPolylineGeometry(clean);
-            }
-
-            const FeatureClass = resolvedSample?.constructor || ol?.Feature;
-            if (FeatureClass) {
+            const FeatureClass = resolvedSample?.constructor || olClasses.Feature;
+            if (FeatureClass && newGeom) {
                 try { feat = new FeatureClass({ geometry: newGeom }); } catch (e) { }
-            }
-
-            // Fallback feature if OpenLayers native Feature class is inaccessible
-            if (!feat) {
-                feat = new TopoMapFeature(newGeom, {
-                    _editId: featureId,
-                    color: strokeColor
-                });
             }
 
             if (feat) {
@@ -1349,6 +1430,7 @@
     window.__smartDrawerSetLandType = setLandTypeAndColor;
     window.__smartDrawerSetDistance = setDistanceInMeters;
     window.__smartDrawerSetSide = setSideOption;
+    window.__topoAddPolyline = addPolylineFeatureToMap;
     // Debug helper exposed for manual console inspection.
     window.__smartDrawerDebugDump = function () {
         const map = window.__topoMap || (window.__topoFindOlMap && window.__topoFindOlMap());

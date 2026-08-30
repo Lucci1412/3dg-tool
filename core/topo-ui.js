@@ -133,6 +133,31 @@
                     <div class="topo-settings-hint" id="topo-settings-hint">
                         💡 <b>Mẹo:</b> Nhấn phím <kbd id="topo-settings-kbd">Space</kbd> bất kỳ lúc nào để thoát vẽ hoặc bật chế độ Chọn/Sửa.
                     </div>
+
+                    <!-- Gemini AI & Few-Shot Configuration -->
+                    <div style="margin:12px 0 8px 0; border-top:1px solid #e2e8f0;"></div>
+                    <div style="font-weight:700; color:#15803d; font-size:12px; margin-bottom:8px; display:flex; align-items:center; gap:5px;">
+                        <span>⚡ Cấu Hình Tự Động Vẽ Ruộng (Computer Vision)</span>
+                    </div>
+                    <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:8px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span style="font-weight:600; font-size:11px; color:#334155;">Độ nhạy nhận diện bờ ruộng:</span>
+                            <span id="topo-cv-sensitivity-val" style="font-weight:bold; font-size:11px; color:#15803d;">0.65</span>
+                        </div>
+                        <input type="range" id="topo-cv-sensitivity-input" min="0.3" max="1.0" step="0.05" value="${localStorage.getItem('topo_cv_sensitivity') || '0.65'}" style="width:100%; cursor:pointer;">
+                        <small style="color:#64748b; font-size:10px;">Nhỏ hơn = bắt được nhiều bờ mờ; Lớn hơn = chỉ bắt bờ đậm tương phản cao.</small>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                        <span style="font-weight:600; font-size:11px; color:#334155;">Nối bờ đứt quãng (Dilation):</span>
+                        <select id="topo-cv-dilate-select" style="height:24px; font-size:11px; border:1px solid #cbd5e1; border-radius:4px; padding:0 4px; color:#1e293b;">
+                            <option value="1" ${(localStorage.getItem('topo_cv_dilate') || '1') === '1' ? 'selected' : ''}>1 lần (Chuẩn)</option>
+                            <option value="2" ${localStorage.getItem('topo_cv_dilate') === '2' ? 'selected' : ''}>2 lần (Bờ nhiều cây/đứt gãy)</option>
+                        </select>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; margin-bottom:4px;">
+                        <span style="font-weight:600; font-size:11px; color:#334155;">Tự động lưu nét vẽ lên 3DG:</span>
+                        <input type="checkbox" id="topo-ai-auto-commit-input" ${localStorage.getItem('topo_ai_auto_commit') === 'true' ? 'checked' : ''} style="cursor:pointer; width:16px; height:16px;">
+                    </div>
                 </div>
             </div>
 
@@ -142,6 +167,9 @@
                     <div class="topo-btn-group">
                         <button class="topo-btn-primary" id="topo-btn-scan">
                             <span>Check Topo</span>
+                        </button>
+                        <button class="topo-btn-secondary" id="topo-btn-ai-draw" title="Tự động bóc tách & vẽ thửa ruộng từ ảnh trực giao bằng Computer Vision (Offline 100%)">
+                            <span>⚡ Vẽ Ruộng</span>
                         </button>
                         <button class="topo-btn-secondary" id="topo-btn-smart-draw" title="Tự động vẽ đường chính & đường song song (Smart Drawer)">
                             <span>Vẽ Đường</span>
@@ -155,6 +183,22 @@
                         <button class="topo-btn-secondary" id="topo-btn-area-delete">
                             <span>Xóa Vùng</span>
                         </button>
+                    </div>
+                </div>
+
+                <!-- Computer Vision Parcel Draw Active Bar -->
+                <div class="topo-ai-bar topo-drawer-hidden" id="topo-ai-bar" style="flex-direction:column; gap:6px; padding:8px 10px; background:#f0fdf4; border:1px solid #86efac; border-radius:6px; margin-top:4px;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; width:100%; font-size:11px; padding:2px 0;">
+                        <div style="display:flex; align-items:center; gap:5px; overflow:hidden; flex:1;">
+                            <span id="topo-ai-spinner" style="display:none;">⏳</span>
+                            <span id="topo-ai-status-text" style="white-space:nowrap; text-overflow:ellipsis; overflow:hidden; color:#15803d; font-weight:600;">⚡ Kéo chọn vùng ruộng để quét tự động...</span>
+                        </div>
+                        <span class="topo-badge" id="topo-ai-feature-count" style="display:none; background:#16a34a; color:#fff; font-size:10px; font-weight:bold; padding:1px 6px; border-radius:4px;">0 thửa</span>
+                    </div>
+                    <div style="display:flex; align-items:center; justify-content:flex-end; gap:6px; width:100%; margin-top:2px;">
+                        <button type="button" class="topo-btn-sm topo-btn-primary" id="topo-btn-ai-confirm" style="display:none; background:#10b981; border-color:#059669; font-weight:600;">✓ Chấp Nhận (Enter)</button>
+                        <button type="button" class="topo-btn-sm topo-btn-cancel" id="topo-btn-ai-clear" style="display:none;">↩ Vẽ Lại</button>
+                        <button type="button" class="topo-btn-sm topo-btn-cancel" id="topo-btn-ai-close">✕ Thoát</button>
                     </div>
                 </div>
 
@@ -372,6 +416,41 @@
             });
         });
 
+        // 0.6 Gemini AI Settings & Few-Shot Samples Manager
+        const aiApiKeyInput = document.getElementById('topo-ai-api-key-input');
+        const aiModelSelect = document.getElementById('topo-ai-model-select');
+        const testAiKeyBtn = document.getElementById('topo-btn-test-ai-key');
+        const clearAiSamplesBtn = document.getElementById('topo-btn-clear-ai-samples');
+        // 0.6 Computer Vision Parcel Draw Settings
+        const cvSensitivityInput = document.getElementById('topo-cv-sensitivity-input');
+        const cvSensitivityVal = document.getElementById('topo-cv-sensitivity-val');
+        const cvDilateSelect = document.getElementById('topo-cv-dilate-select');
+
+        if (cvSensitivityInput && cvSensitivityVal) {
+            const savedSens = localStorage.getItem('topo_cv_sensitivity') || '0.65';
+            cvSensitivityInput.value = savedSens;
+            cvSensitivityVal.textContent = savedSens;
+            cvSensitivityInput.addEventListener('input', () => {
+                cvSensitivityVal.textContent = cvSensitivityInput.value;
+                localStorage.setItem('topo_cv_sensitivity', cvSensitivityInput.value);
+            });
+        }
+
+        if (cvDilateSelect) {
+            cvDilateSelect.value = localStorage.getItem('topo_cv_dilate') || '1';
+            cvDilateSelect.addEventListener('change', () => {
+                localStorage.setItem('topo_cv_dilate', cvDilateSelect.value);
+            });
+        }
+
+        const aiAutoCommitInput = document.getElementById('topo-ai-auto-commit-input');
+        if (aiAutoCommitInput) {
+            aiAutoCommitInput.checked = localStorage.getItem('topo_ai_auto_commit') === 'true';
+            aiAutoCommitInput.addEventListener('change', () => {
+                localStorage.setItem('topo_ai_auto_commit', aiAutoCommitInput.checked ? 'true' : 'false');
+            });
+        }
+
         function isTextEditingElement(el) {
             if (!el) return false;
             if (el.isContentEditable) return true;
@@ -516,11 +595,12 @@
             }, true);
         }
 
-        let currentAreaMode = 'delete'; // 'delete', 'color', 'smart-draw', or 'cut-line'
+        let currentAreaMode = 'delete'; // 'delete', 'color', 'smart-draw', 'cut-line', or 'ai-draw'
 
         function setActiveModeButton(activeId) {
-            if (!scanBtn || !smartDrawBtn || !cutLineBtn || !areaColorBtn || !areaDeleteBtn) return;
-            [scanBtn, smartDrawBtn, cutLineBtn, areaColorBtn, areaDeleteBtn].forEach(btn => {
+            const aiDrawBtnEl = document.getElementById('topo-btn-ai-draw');
+            const allBtns = [scanBtn, aiDrawBtnEl, smartDrawBtn, cutLineBtn, areaColorBtn, areaDeleteBtn].filter(Boolean);
+            allBtns.forEach(btn => {
                 if (btn.id === activeId) {
                     btn.classList.remove('topo-btn-secondary');
                     btn.classList.add('topo-btn-primary');
@@ -595,7 +675,10 @@
             if (window.__areaDeleterCancel) window.__areaDeleterCancel();
             if (window.__areaColorizer3DCancel) window.__areaColorizer3DCancel();
             if (window.__areaColorizerHidePopover) window.__areaColorizerHidePopover();
+            if (window.__topoAIDraw?.stop) window.__topoAIDraw.stop();
             if (areaBar) areaBar.classList.add('topo-drawer-hidden');
+            const aiBarEl = document.getElementById('topo-ai-bar');
+            if (aiBarEl) aiBarEl.classList.add('topo-drawer-hidden');
             if (cutLineBtn) {
                 const span = cutLineBtn.querySelector('span') || cutLineBtn;
                 span.textContent = 'Cắt Nét';
@@ -606,7 +689,7 @@
             setUIVisibilityMode('scan');
 
             // Đảm bảo toàn bộ các canvas vẽ tương tác đều được reset về pointer-events: none và cursor: default
-            ['topo-area-draw-canvas', 'topo-cut-line-canvas', 'topo-smart-draw-canvas', 'topo-3d-area-draw-canvas'].forEach(id => {
+            ['topo-area-draw-canvas', 'topo-cut-line-canvas', 'topo-smart-draw-canvas', 'topo-3d-area-draw-canvas', 'topo-ai-draw-canvas'].forEach(id => {
                 const cv = document.getElementById(id);
                 if (cv) {
                     cv.style.pointerEvents = 'none';
@@ -978,6 +1061,59 @@
                         if (areaConfirmBtn) areaConfirmBtn.style.display = 'none';
                     }
                 }
+            });
+        }
+
+        // 5.5 AI Draw button & controls
+        const aiDrawBtn = document.getElementById('topo-btn-ai-draw');
+        const aiBtnConfirm = document.getElementById('topo-btn-ai-confirm');
+        const aiBtnClear = document.getElementById('topo-btn-ai-clear');
+        const aiBtnClose = document.getElementById('topo-btn-ai-close');
+
+        if (aiDrawBtn) {
+            aiDrawBtn.addEventListener('click', () => {
+                if (currentAreaMode === 'ai-draw') {
+                    cancelAllInteractiveModes();
+                    setActiveModeButton('topo-btn-scan');
+                    setUIVisibilityMode('scan');
+                    return;
+                }
+
+                cancelAllInteractiveModes();
+                setUIVisibilityMode('interactive');
+                setActiveModeButton('topo-btn-ai-draw');
+                currentAreaMode = 'ai-draw';
+
+                if (window.__topoAIDraw) {
+                    window.__topoAIDraw.start('DRAW');
+                }
+            });
+        }
+
+        if (aiBtnConfirm) {
+            aiBtnConfirm.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (window.__topoAIDraw) {
+                    window.__topoAIDraw.commitFeatures();
+                }
+            });
+        }
+
+        if (aiBtnClear) {
+            aiBtnClear.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (window.__topoAIDraw) {
+                    window.__topoAIDraw.start('DRAW');
+                }
+            });
+        }
+
+        if (aiBtnClose) {
+            aiBtnClose.addEventListener('click', (e) => {
+                e.stopPropagation();
+                cancelAllInteractiveModes();
+                setActiveModeButton('topo-btn-scan');
+                setUIVisibilityMode('scan');
             });
         }
 

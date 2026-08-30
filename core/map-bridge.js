@@ -454,20 +454,13 @@
 
             let fiber = el[key];
             for (let depth = 0; depth < 120 && fiber; depth++) {
-                if (fiber.memoizedProps?.onFinishDrawing || fiber.memoizedProps?.mapInstance || fiber.elementType?.name === 'Dc') {
+                if (fiber.memoizedProps?.onFinishDrawing || fiber.memoizedProps?.mapInstance || fiber.elementType?.name === 'Dc' || fiber.elementType?.name === 'tu') {
                     let s = fiber.memoizedState;
-                    let idx = 0;
                     while (s) {
-                        if (idx === 61 && s.queue && typeof s.queue.dispatch === 'function' && !seenQueues.has(s.queue)) {
+                        if (s.queue && typeof s.queue.dispatch === 'function' && Array.isArray(s.memoizedState) && !seenQueues.has(s.queue)) {
                             seenQueues.add(s.queue);
                             queues.push(s.queue);
-                        } else if (s.queue && typeof s.queue.dispatch === 'function' && Array.isArray(s.memoizedState) && !seenQueues.has(s.queue)) {
-                            if (s.memoizedState.length > 0 && (s.memoizedState[0]?.id || s.memoizedState[0]?.group || s.memoizedState[0]?.mode)) {
-                                seenQueues.add(s.queue);
-                                queues.push(s.queue);
-                            }
                         }
-                        idx++;
                         s = s.next;
                     }
                 }
@@ -646,25 +639,30 @@
                         if (typeof props.onFeatureAdd === 'function') props.onFeatureAdd(groupObject);
                     }
 
-                    let s = node.memoizedState;
-                    while (s) {
-                        if (s.queue && typeof s.queue.dispatch === 'function' && Array.isArray(s.memoizedState)) {
-                            if (!dispatchedQueues.has(s.queue)) {
-                                const arr = s.memoizedState;
-                                if (arr.length > 0 && (arr[0]?.id || arr[0]?.group || arr[0]?.mode)) {
+                    // Only dispatch to known Redux/context stores or callback props
+                    if (node.elementType?.name === 'tu' || node.elementType?.name === 'Dc') {
+                        let s = node.memoizedState;
+                        let idx = 0;
+                        while (s) {
+                            if (s.queue && typeof s.queue.dispatch === 'function' && Array.isArray(s.memoizedState)) {
+                                if (!dispatchedQueues.has(s.queue)) {
                                     dispatchedQueues.add(s.queue);
-                                    s.queue.dispatch(prev => {
-                                        if (Array.isArray(prev)) {
-                                            const exists = prev.some(item => (item.id === featureId || item.group?.id === featureId || item._id === featureId));
+                                    try {
+                                        s.queue.dispatch(prev => {
+                                            if (!Array.isArray(prev)) return prev;
+                                            const exists = prev.some(item => (item?.id === featureId || item?.group?.id === featureId || item?._id === featureId));
                                             if (exists) return prev;
+                                            if (prev.length > 0 && prev[0]?.group) {
+                                                return [...prev, itemContainer];
+                                            }
                                             return [...prev, groupObject];
-                                        }
-                                        return [groupObject];
-                                    });
+                                        });
+                                    } catch(e) {}
                                 }
                             }
+                            s = s.next;
+                            idx++;
                         }
-                        s = s.next;
                     }
                 } catch (e) {}
                 node = node.return;
