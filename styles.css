@@ -414,7 +414,10 @@
     gap: 8px;
 }
 
-.topo-area-bar.topo-drawer-hidden {
+.topo-drawer-hidden,
+.topo-ai-bar.topo-drawer-hidden,
+.topo-area-bar.topo-drawer-hidden,
+.topo-settings-drawer.topo-drawer-hidden {
     display: none !important;
 }
 

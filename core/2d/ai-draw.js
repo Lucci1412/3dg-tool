@@ -166,7 +166,7 @@
             }
         }
 
-        // 2. Render CV-Recognized Features Preview (Glowing Polygons)
+        // 2. Render Recognized Features Preview (Clean, standard GIS lines)
         if (recognizedFeatures.length > 0) {
             ctx.save();
 
@@ -177,7 +177,7 @@
                 if (pixels.length < 2) return;
 
                 const isHovered = feat.id === hoveredFeatureId;
-                const strokeColor = feat.color || getLandTypeColor(feat.landType);
+                const strokeColor = feat.color || getLandTypeColor(feat.landType) || '#facc15';
 
                 ctx.beginPath();
                 ctx.moveTo(pixels[0][0], pixels[0][1]);
@@ -187,51 +187,25 @@
 
                 if (pixels.length >= 3) {
                     ctx.closePath();
-                    ctx.fillStyle = isHovered ? 'rgba(16, 185, 129, 0.35)' : 'rgba(254, 240, 138, 0.25)';
+                    ctx.fillStyle = isHovered ? 'rgba(16, 185, 129, 0.25)' : 'rgba(250, 204, 21, 0.15)';
                     ctx.fill();
                 }
 
-                if (isHovered) {
-                    ctx.shadowColor = '#ffffff';
-                    ctx.shadowBlur = 12;
-                    ctx.strokeStyle = '#ffffff';
-                    ctx.lineWidth = 4;
-                    ctx.setLineDash([]);
-                    ctx.stroke();
-                }
-
-                ctx.shadowColor = strokeColor;
-                ctx.shadowBlur = 8;
-                ctx.strokeStyle = strokeColor;
-                ctx.lineWidth = isHovered ? 3.5 : 2.5;
+                ctx.strokeStyle = isHovered ? '#10b981' : strokeColor;
+                ctx.lineWidth = isHovered ? 2.5 : 2.0;
                 ctx.setLineDash([]);
                 ctx.stroke();
 
-                // Draw Vertices
+                // Draw Subtle Vertex Dots
                 pixels.forEach(p => {
                     ctx.beginPath();
-                    ctx.arc(p[0], p[1], isHovered ? 4.5 : 3, 0, Math.PI * 2);
-                    ctx.fillStyle = strokeColor;
+                    ctx.arc(p[0], p[1], isHovered ? 3.5 : 2.5, 0, Math.PI * 2);
+                    ctx.fillStyle = isHovered ? '#10b981' : strokeColor;
                     ctx.fill();
                     ctx.strokeStyle = '#ffffff';
                     ctx.lineWidth = 1;
                     ctx.stroke();
                 });
-
-                // Draw Name Tag near centroid
-                if (pixels.length >= 3) {
-                    let cx = 0, cy = 0;
-                    pixels.forEach(p => { cx += p[0]; cy += p[1]; });
-                    cx /= pixels.length;
-                    cy /= pixels.length;
-
-                    ctx.font = 'bold 11px system-ui, sans-serif';
-                    ctx.fillStyle = '#0f172a';
-                    ctx.strokeStyle = '#ffffff';
-                    ctx.lineWidth = 3;
-                    ctx.strokeText(feat.name || 'Thửa', cx - 15, cy + 4);
-                    ctx.fillText(feat.name || 'Thửa', cx - 15, cy + 4);
-                }
             });
 
             ctx.restore();
@@ -262,17 +236,24 @@
         const vpWidth = Math.max(10, Math.abs(p2[0] - p1[0]));
         const vpHeight = Math.max(10, Math.abs(p2[1] - p1[1]));
 
+        const padX = vpWidth * 0.08;
+        const padY = vpHeight * 0.08;
+        const bufferedVpMinX = Math.max(0, vpMinX - padX);
+        const bufferedVpMinY = Math.max(0, vpMinY - padY);
+        const bufferedVpWidth = Math.min((viewport.clientWidth || 1) - bufferedVpMinX, vpWidth + padX * 2);
+        const bufferedVpHeight = Math.min((viewport.clientHeight || 1) - bufferedVpMinY, vpHeight + padY * 2);
+
         const scaleX = sourceCanvas.width / (viewport.clientWidth || 1);
         const scaleY = sourceCanvas.height / (viewport.clientHeight || 1);
 
-        const srcX = Math.max(0, vpMinX * scaleX);
-        const srcY = Math.max(0, vpMinY * scaleY);
-        const srcW = Math.min(sourceCanvas.width - srcX, vpWidth * scaleX);
-        const srcH = Math.min(sourceCanvas.height - srcY, vpHeight * scaleY);
+        const srcX = Math.max(0, bufferedVpMinX * scaleX);
+        const srcY = Math.max(0, bufferedVpMinY * scaleY);
+        const srcW = Math.min(sourceCanvas.width - srcX, bufferedVpWidth * scaleX);
+        const srcH = Math.min(sourceCanvas.height - srcY, bufferedVpHeight * scaleY);
 
         if (srcW <= 0 || srcH <= 0) return null;
 
-        // Create Full-Resolution Crop Canvas
+        // Create Full-Resolution Crop Canvas with context padding
         const cropCanvas = document.createElement('canvas');
         cropCanvas.width = Math.round(srcW);
         cropCanvas.height = Math.round(srcH);
@@ -293,10 +274,10 @@
             canvas: cropCanvas,
             width: cropCanvas.width,
             height: cropCanvas.height,
-            vpMinX: vpMinX,
-            vpMinY: vpMinY,
-            vpWidth: vpWidth,
-            vpHeight: vpHeight,
+            vpMinX: bufferedVpMinX,
+            vpMinY: bufferedVpMinY,
+            vpWidth: bufferedVpWidth,
+            vpHeight: bufferedVpHeight,
             extent: accurateExtent
         };
     }
@@ -743,8 +724,8 @@
         });
     }
 
-    // ===== SPIKE & SAWTOOTH FILTER =====
-    function removePolygonSpikes(coords, minAngleDeg = 30.0) {
+    // ===== CADASTRAL POLYGON REGULARIZER =====
+    function removePolygonSpikes(coords, minAngleDeg = 38.0, collinearThreshDeg = 10.0, minEdgeLen = 6.0) {
         if (!coords || coords.length < 4) return coords;
 
         let isClosed = false;
@@ -755,10 +736,12 @@
         }
 
         let pts = isClosed ? coords.slice(0, -1) : [...coords];
+        if (pts.length < 3) return coords;
+
         let changed = true;
         let iterations = 0;
 
-        while (changed && pts.length > 3 && iterations < 8) {
+        while (changed && pts.length > 3 && iterations < 10) {
             changed = false;
             iterations++;
             const n = pts.length;
@@ -783,14 +766,29 @@
                     continue;
                 }
 
+                // Check for tiny micro-edges (bumpy notches)
+                if (len2 < minEdgeLen && pts.length - toRemove.size > 4) {
+                    toRemove.add(i);
+                    changed = true;
+                    continue;
+                }
+
                 const dot = (v1x * v2x + v1y * v2y) / (len1 * len2);
                 const clampedDot = Math.max(-1.0, Math.min(1.0, dot));
                 const angleDeg = Math.acos(clampedDot) * (180.0 / Math.PI);
 
-                // Acute sawtooth / lightning spike
+                // 1. Acute spike
                 if (angleDeg < minAngleDeg) {
                     toRemove.add(i);
                     changed = true;
+                    continue;
+                }
+
+                // 2. Collinear vertex along straight dike
+                if (angleDeg > (180.0 - collinearThreshDeg)) {
+                    toRemove.add(i);
+                    changed = true;
+                    continue;
                 }
             }
 
@@ -810,10 +808,10 @@
     function snapEndpointsToNearby(features, toleranceMeters = 0.5) {
         if (!features || features.length === 0) return features;
 
-        // Clean spikes on all features first
+        // Clean spikes on all features first while preserving natural corners & chamfers
         features.forEach(feat => {
             if (feat.coords && feat.coords.length >= 4) {
-                feat.coords = removePolygonSpikes(feat.coords, 30.0);
+                feat.coords = removePolygonSpikes(feat.coords, 25.0);
             }
         });
 
@@ -855,6 +853,112 @@
         }
 
         return features;
+    }
+
+    // ===== SPATIAL FILTERS: BORDER CROSSING & EXISTING DRAWING DETECTION =====
+    function isPointInPolygon2D(pt, poly) {
+        if (!pt || !poly || poly.length < 3) return false;
+        const x = pt[0], y = pt[1];
+        let inside = false;
+        const n = poly.length;
+        let p1x = poly[0][0], p1y = poly[0][1];
+        for (let i = 0; i <= n; i++) {
+            const p2x = poly[i % n][0], p2y = poly[i % n][1];
+            if (y > Math.min(p1y, p2y)) {
+                if (y <= Math.max(p1y, p2y)) {
+                    if (x <= Math.max(p1x, p2x)) {
+                        let xinters = 0;
+                        if (p1y !== p2y) {
+                            xinters = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x;
+                        }
+                        if (p1x === p2x || x <= xinters) {
+                            inside = !inside;
+                        }
+                    }
+                }
+            }
+            p1x = p2x;
+            p1y = p2y;
+        }
+        return inside;
+    }
+
+    function getExistingMapFeatures(map) {
+        if (!map) return [];
+        const existing = [];
+        try {
+            map.getLayers().forEach(function walk(layer) {
+                if (typeof layer.getLayers === 'function') {
+                    try { layer.getLayers().forEach(walk); } catch (e) { }
+                    return;
+                }
+                try {
+                    const src = layer.getSource?.();
+                    if (!src || typeof src.getFeatures !== 'function') return;
+                    const layerId = String(layer.get?.('id') || layer.get?.('name') || layer.get?.('title') || '').toLowerCase();
+                    if (layerId.includes('topo') || layerId.includes('highlight') || layerId.includes('overlay') || layerId.includes('preview')) return;
+                    const feats = src.getFeatures();
+                    feats.forEach(f => {
+                        const geom = f.getGeometry?.();
+                        if (!geom) return;
+                        const type = geom.getType?.();
+                        if (type === 'LineString' || type === 'Polygon' || type === 'MultiPolygon') {
+                            const coords = geom.getCoordinates?.();
+                            if (coords) existing.push({ feature: f, geom, type, coords });
+                        }
+                    });
+                } catch (e) { }
+            });
+        } catch (e) { }
+        return existing;
+    }
+
+    function doesParcelHaveExistingDrawings(polyCoords, existingFeatures) {
+        if (!existingFeatures || existingFeatures.length === 0 || !polyCoords || polyCoords.length < 3) return false;
+
+        // Compute centroid
+        let cx = 0, cy = 0;
+        polyCoords.forEach(p => { cx += p[0]; cy += p[1]; });
+        cx /= polyCoords.length;
+        cy /= polyCoords.length;
+
+        for (const item of existingFeatures) {
+            if (item.type === 'LineString' && Array.isArray(item.coords)) {
+                let insideCount = 0;
+                for (const pt of item.coords) {
+                    if (isPointInPolygon2D(pt, polyCoords)) {
+                        insideCount++;
+                        if (insideCount >= 2) return true; // Existing line runs inside this parcel
+                    }
+                }
+            } else if (item.type === 'Polygon' && Array.isArray(item.coords)) {
+                const ring = item.coords[0] || item.coords;
+                let insideCount = 0;
+                for (const pt of ring) {
+                    if (isPointInPolygon2D(pt, polyCoords)) {
+                        insideCount++;
+                        if (insideCount >= 2) return true;
+                    }
+                }
+                if (isPointInPolygon2D([cx, cy], ring)) return true;
+            }
+        }
+        return false;
+    }
+
+    function isParcelInsideUserSelectionBox(polyCoords, userExtent, minInsideRatio = 0.82) {
+        if (!polyCoords || polyCoords.length < 3 || !userExtent) return true;
+        const [uMinX, uMinY, uMaxX, uMaxY] = userExtent;
+
+        let insideCount = 0;
+        for (const pt of polyCoords) {
+            const x = pt[0], y = pt[1];
+            if (x >= uMinX && x <= uMaxX && y >= uMinY && y <= uMaxY) {
+                insideCount++;
+            }
+        }
+        const ratio = insideCount / polyCoords.length;
+        return ratio >= minInsideRatio;
     }
 
     function createOlStyleForFeature(color, width = 2.0, sampleFeature = null, map = null) {
@@ -1650,19 +1754,34 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         image_base64: crop.canvas.toDataURL('image/png'),
-                        extent: extent,
+                        extent: crop.extent || extent,
                         conf: targetConf
                     }),
                     signal: controller.signal
                 });
 
-                clearTimeout(timeoutId);
+                const map = window.__topoMap || (window.__topoFindOlMap && window.__topoFindOlMap());
+                const existingMapFeatures = getExistingMapFeatures(map);
+
                 const data = await response.json();
                 if (data && data.ok) {
                     if (data.model_name) aiModelName = data.model_name;
                     const polygons = data.polygons || [];
                     polygons.forEach((polyCoords, idx) => {
                         if (!polyCoords || polyCoords.length < 4) return;
+
+                        // 1. Filter out border-crossing parcels (lying across the dragged selection box)
+                        if (!isParcelInsideUserSelectionBox(polyCoords, extent, 0.82)) {
+                            log(`[AI-Draw] Bỏ qua thửa cắt ngang mép vùng kéo #${idx + 1}`);
+                            return;
+                        }
+
+                        // 2. Filter out parcels that already have existing drawings on the map
+                        if (doesParcelHaveExistingDrawings(polyCoords, existingMapFeatures)) {
+                            log(`[AI-Draw] Bỏ qua thửa #${idx + 1} vì đã có nét vẽ sẵn trên bản đồ`);
+                            return;
+                        }
+
                         processed.push({
                             id: 'ai-feat-' + idx + '-' + Date.now(),
                             type: 'Polygon',
@@ -1694,6 +1813,7 @@
 
                 const rawFeatures = result.features || [];
                 const map = window.__topoMap || (window.__topoFindOlMap && window.__topoFindOlMap());
+                const existingMapFeatures = getExistingMapFeatures(map);
 
                 rawFeatures.forEach((raw, idx) => {
                     const pixelPoints = raw.pixelPoints || [];
@@ -1716,6 +1836,12 @@
                             mapCoords.push([...first]);
                         }
 
+                        // 1. Filter border crossing
+                        if (!isParcelInsideUserSelectionBox(mapCoords, extent, 0.82)) return;
+
+                        // 2. Filter existing drawings
+                        if (doesParcelHaveExistingDrawings(mapCoords, existingMapFeatures)) return;
+
                         processed.push({
                             id: 'cv-feat-' + idx + '-' + Date.now(),
                             type: 'Polygon',
@@ -1729,23 +1855,12 @@
                 });
             }
 
-            // Clean spikes on all features before snapping/rendering
-            processed.forEach(feat => {
-                if (feat.coords && feat.coords.length >= 4) {
-                    feat.coords = removePolygonSpikes(feat.coords, 30.0);
-                }
-            });
-
-            // Snap endpoints & shared boundaries
-            const autoSnap = localStorage.getItem(STORAGE_KEY_AUTO_SNAP) !== 'false';
-            recognizedFeatures = autoSnap ? snapEndpointsToNearby(processed, 0.4) : processed;
-
-            // Final spike clean after snapping
-            recognizedFeatures.forEach(feat => {
-                if (feat.coords && feat.coords.length >= 4) {
-                    feat.coords = removePolygonSpikes(feat.coords, 30.0);
-                }
-            });
+            if (usedAI) {
+                recognizedFeatures = processed;
+            } else {
+                const autoSnap = localStorage.getItem(STORAGE_KEY_AUTO_SNAP) !== 'false';
+                recognizedFeatures = autoSnap ? snapEndpointsToNearby(processed, 0.4) : processed;
+            }
 
             const modeText = usedAI ? aiModelName : 'Computer Vision';
             updateAIStatus(`🎉 Đã nhận diện được ${recognizedFeatures.length} thửa ruộng (${modeText})! Nhấn Enter để thêm vào bản đồ.`, 'success');
@@ -1864,6 +1979,18 @@
         if (map) {
             disableNativeMapInteractions(map);
             try {
+                const view = map.getView && map.getView();
+                if (view) {
+                    const currentZoom = typeof view.getZoom === 'function' ? view.getZoom() : null;
+                    // Auto-adjust / lock zoom to optimal level 19.0 for parcel delineation
+                    if (currentZoom !== null && (currentZoom < 18.2 || currentZoom > 20.8)) {
+                        try {
+                            view.animate({ zoom: 19.0, duration: 400 });
+                        } catch (err) {
+                            try { view.setZoom(19.0); } catch (e) { }
+                        }
+                    }
+                }
                 map.on('postrender', requestAIRender);
                 map.getView()?.on('change:center', requestAIRender);
                 map.getView()?.on('change:resolution', requestAIRender);

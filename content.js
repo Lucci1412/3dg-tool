@@ -12,9 +12,12 @@ const scripts = [
     'core/2d/area-color.js',
     'core/2d/smart-draw.js',
     'core/2d/cut-line.js',
+    'core/2d/ai-draw.js',
+    'core/2d/clean-duplicates.js',
     'core/3d/bridge-3d.js',
     'core/3d/check-topo.js',
     'core/3d/area-color.js',
+    'core/shortcuts-manager.js',
     'core/topo-ui.js'
 ];
 

@@ -240,15 +240,15 @@
 
                     const type = geom.getType();
                     if (type === 'LineString' || type === 'MultiLineString' || type === 'Polygon' || type === 'MultiPolygon') {
-                        const fId = f.getId?.();
-                        if (fId != null && fId !== '') {
-                            if (seenFeatureIds.has(fId)) continue;
-                            seenFeatureIds.add(fId);
+                        let uniqueId = (fId != null && fId !== '') ? String(fId) : ('feat_' + results.length);
+                        if (seenFeatureIds.has(uniqueId)) {
+                            uniqueId = `${uniqueId}_${results.length}`;
                         }
+                        seenFeatureIds.add(uniqueId);
 
                         results.push({
                             feature: f,
-                            id: fId != null && fId !== '' ? fId : ('feat_' + results.length),
+                            id: uniqueId,
                             geometry: geom,
                             layer: layer,
                             source: src
@@ -535,8 +535,14 @@
         const tolerance = options.tolerance !== undefined ? Number(options.tolerance) : 0.5;
         const tolSq = tolerance * tolerance;
 
-        await report(1, 'Đang dọn dẹp đỉnh trùng lặp và đối tượng suy biến...');
-        const cleanResult = autoCleanDuplicateVerticesOnMap(tolerance);
+        // Dọn dẹp điểm trùng lặp vi sai số số học (1e-4m = 0.1mm), TUYỆT ĐỐI KHÔNG dùng tolerance quét (0.5m)
+        // để tránh làm mất / xóa các đoạn thẳng ngắn hoặc gãy khúc thực tế trên bản đồ.
+        const cleanEpsilon = 1e-4;
+
+        await report(1, 'Đang chuẩn bị dữ liệu kiểm tra topology...');
+        if (options.autoClean === true) {
+            autoCleanDuplicateVerticesOnMap(cleanEpsilon);
+        }
 
         await report(5, 'Đang thu thập đối tượng trên bản đồ...');
         const featureItems = collectAllFeatures();
@@ -554,7 +560,7 @@
             let coords = geom.getCoordinates();
 
             if (type === 'LineString') {
-                const { cleaned, isDegenerate } = sanitizeLineStringCoords(coords, tolerance);
+                const { cleaned, isDegenerate } = sanitizeLineStringCoords(coords, cleanEpsilon);
                 if (isDegenerate) continue;
                 coords = cleaned;
 
@@ -579,7 +585,7 @@
             } else if (type === 'MultiLineString') {
                 const cleanedLines = [];
                 for (const line of coords) {
-                    const { cleaned, isDegenerate } = sanitizeLineStringCoords(line, tolerance);
+                    const { cleaned, isDegenerate } = sanitizeLineStringCoords(line, cleanEpsilon);
                     if (!isDegenerate) cleanedLines.push(cleaned);
                 }
                 if (cleanedLines.length === 0) continue;
@@ -607,7 +613,7 @@
                 }
             } else if (type === 'Polygon') {
                 if (!coords || coords.length === 0) continue;
-                const { cleaned: extCleaned, isDegenerate } = sanitizePolygonRingCoords(coords[0], tolerance);
+                const { cleaned: extCleaned, isDegenerate } = sanitizePolygonRingCoords(coords[0], cleanEpsilon);
                 if (isDegenerate) continue;
                 coords = [extCleaned, ...coords.slice(1)];
 
@@ -632,7 +638,7 @@
                 const cleanedPolys = [];
                 for (const poly of coords) {
                     if (!poly || poly.length === 0) continue;
-                    const { cleaned: extCleaned, isDegenerate } = sanitizePolygonRingCoords(poly[0], tolerance);
+                    const { cleaned: extCleaned, isDegenerate } = sanitizePolygonRingCoords(poly[0], cleanEpsilon);
                     if (!isDegenerate) cleanedPolys.push([extCleaned, ...poly.slice(1)]);
                 }
                 if (cleanedPolys.length === 0) continue;
@@ -787,25 +793,7 @@
             return false;
         }
 
-        const uniqueFeatureItems = [];
-        const seenGeomKeys = new Set();
-        for (const item of featureItems) {
-            try {
-                const coords = item.geometry.getCoordinates?.();
-                if (coords && coords.length) {
-                    let first = coords[0];
-                    let last = coords[coords.length - 1];
-                    while (Array.isArray(first) && Array.isArray(first[0])) first = first[0];
-                    while (Array.isArray(last) && Array.isArray(last[0])) last = last[0];
-                    if (Array.isArray(first) && Array.isArray(last)) {
-                        const key = `${coords.length}_${first[0].toFixed(3)}_${first[1].toFixed(3)}_${last[0].toFixed(3)}_${last[1].toFixed(3)}`;
-                        if (seenGeomKeys.has(key)) continue;
-                        seenGeomKeys.add(key);
-                    }
-                }
-            } catch (e) { }
-            uniqueFeatureItems.push(item);
-        }
+        const uniqueFeatureItems = featureItems;
 
         const featureCoordsList = [];
         const allDupSegments = [];

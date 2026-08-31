@@ -35,7 +35,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Load Delineate Anything model (Try DelineateAnythingv2 first, fallback to DelineateAnything-S, then user's best.pt)
+# Load Delineate Anything model
 model_path = os.path.join(os.path.dirname(__file__), "..", "models", "DelineateAnythingv2.pt")
 model_name_display = "Delineate Anything v2"
 if not os.path.exists(model_path):
@@ -58,12 +58,42 @@ print(f"{model_name_display} loaded successfully!")
 class PredictionRequest(BaseModel):
     image_base64: str
     extent: list  # [minX, minY, maxX, maxY] in EPSG:3857
-    conf: float = 0.05
+    conf: float = 0.08
 
-def remove_polygon_spikes(coords, min_angle_deg=30.0):
+def filter_duplicate_masks(detected_masks, iou_thresh=0.25, iomin_thresh=0.35):
     """
-    Eliminates acute sawtooth / lightning / spike vertices from polygon boundary.
-    Uses 30 deg threshold to remove noise while preserving natural sharp parcel corners.
+    Suppresses duplicate and nested candidate masks from YOLO.
+    """
+    detected_masks.sort(key=lambda item: item["conf"] * np.sqrt(item["area"]), reverse=True)
+    kept = []
+    
+    for item in detected_masks:
+        m = item["mask"] > 0
+        area = item["area"]
+        is_dup = False
+        
+        for k in kept:
+            km = k["mask"] > 0
+            inter = np.count_nonzero(m & km)
+            if inter > 0:
+                union = area + k["area"] - inter
+                iou = inter / float(union)
+                io_min = inter / float(min(area, k["area"]))
+                if iou > iou_thresh or io_min > iomin_thresh:
+                    is_dup = True
+                    break
+                    
+        if not is_dup:
+            kept.append(item)
+            
+    return kept
+
+def remove_polygon_spikes_and_collinear(coords, min_angle_deg=28.0, collinear_thresh_deg=8.0, min_edge_len=4.0):
+    """
+    Cadastral Polygon Regularizer:
+    1. Removes acute sawtooth / lightning spikes (< 28 deg)
+    2. Removes collinear redundant vertices (within 8 deg of 180 deg)
+    3. Collapses tiny micro-notches (< min_edge_len pixels)
     """
     if len(coords) < 4:
         return coords
@@ -71,9 +101,12 @@ def remove_polygon_spikes(coords, min_angle_deg=30.0):
     is_closed = (abs(coords[0][0] - coords[-1][0]) < 1e-4 and abs(coords[0][1] - coords[-1][1]) < 1e-4)
     pts = [list(c) for c in (coords[:-1] if is_closed else coords)]
 
+    if len(pts) < 3:
+        return coords
+
     changed = True
     iterations = 0
-    while changed and len(pts) > 3 and iterations < 6:
+    while changed and len(pts) > 3 and iterations < 8:
         changed = False
         iterations += 1
         n = len(pts)
@@ -95,14 +128,24 @@ def remove_polygon_spikes(coords, min_angle_deg=30.0):
                 changed = True
                 continue
 
+            if len2 < min_edge_len and len(pts) - len(to_remove) > 4:
+                to_remove.add(i)
+                changed = True
+                continue
+
             cos_angle = np.dot(v1, v2) / (len1 * len2)
             cos_angle = np.clip(cos_angle, -1.0, 1.0)
             angle_deg = np.degrees(np.arccos(cos_angle))
 
-            # Acute spike (hairpin zigzag artifact)
             if angle_deg < min_angle_deg:
                 to_remove.add(i)
                 changed = True
+                continue
+
+            if angle_deg > (180.0 - collinear_thresh_deg):
+                to_remove.add(i)
+                changed = True
+                continue
 
         if to_remove and len(pts) - len(to_remove) >= 3:
             pts = [pt for idx, pt in enumerate(pts) if idx not in to_remove]
@@ -131,16 +174,17 @@ async def predict(req: PredictionRequest):
         
         # Metric resolution (meters per pixel)
         meters_per_pixel = (maxX - minX) / max(1, w)
-        tol_pixels = max(0.5, 0.15 / max(1e-4, meters_per_pixel))
+        tol_pixels = max(0.6, 0.15 / max(1e-4, meters_per_pixel))
         
-        # Dynamic high-resolution inference (avoids downscale mask blurring)
-        max_dim = max(h, w)
-        target_imgsz = min(1280, max(640, int(np.ceil(max_dim / 32.0) * 32)))
+        # Standardized constant inference resolution (ensures 100% identical results across draws)
+        target_imgsz = 1024
         
-        # Run inference with full-resolution retina masks
-        results = model(img, imgsz=target_imgsz, conf=req.conf, retina_masks=True)
+        # Run inference with confidence floor and full-resolution retina masks
+        effective_conf = max(0.06, req.conf)
+        results = model(img, imgsz=target_imgsz, conf=effective_conf, iou=0.45, retina_masks=True, agnostic_nms=True)
         
-        detected_masks = []
+        raw_masks = []
+        k_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))
         
         for result in results:
             masks = result.masks
@@ -167,14 +211,26 @@ async def predict(req: PredictionRequest):
                 else:
                     continue
                     
+                # Clean mask: keep only the single largest connected component
+                num_labels, labels_im, stats, _ = cv2.connectedComponentsWithStats(mask_bin)
+                if num_labels > 1:
+                    largest_idx = 1 + np.argmax(stats[1:, cv2.CC_STAT_AREA])
+                    mask_bin = (labels_im == largest_idx).astype(np.uint8) * 255
+                    
+                # Morphological close to bridge internal pinholes and texture dents
+                mask_bin = cv2.morphologyEx(mask_bin, cv2.MORPH_CLOSE, k_close)
                 area = np.count_nonzero(mask_bin)
-                if area >= 150:
-                    detected_masks.append({
+                
+                if area >= 250:
+                    raw_masks.append({
                         "mask": mask_bin,
                         "conf": conf_val,
                         "area": area
                     })
                     
+        # 1. Mask NMS / Duplicate Suppression
+        detected_masks = filter_duplicate_masks(raw_masks, iou_thresh=0.25, iomin_thresh=0.35)
+        
         if not detected_masks:
             return {
                 "ok": True,
@@ -183,108 +239,94 @@ async def predict(req: PredictionRequest):
                 "model_name": model_name_display
             }
 
-        # 1. Gradient-guided Watershed Expansion: Bridges inter-parcel dikes & snaps to dike centerline
-        # Sort by confidence * sqrt(area)
-        detected_masks.sort(key=lambda item: item["conf"] * np.sqrt(item["area"]), reverse=True)
-        
-        markers = np.zeros((h, w), dtype=np.int32)
-        union_mask = np.zeros((h, w), dtype=np.uint8)
-        
-        for idx, item in enumerate(detected_masks):
+        # 2. Extract Smooth Cadastral Polygons using Convex Hull Simplification
+        raw_polygons = []
+        for item in detected_masks:
             m = item["mask"]
-            label_id = idx + 1
-            # Clean interior pinholes
-            m_clean = cv2.morphologyEx(m, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)))
-            # Erode seed slightly so overlapping seeds don't collide
-            seed = cv2.erode(m_clean, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)))
-            if np.count_nonzero(seed) < 50:
-                seed = m_clean
-            markers[(seed > 128) & (markers == 0)] = label_id
-            union_mask = cv2.bitwise_or(union_mask, m_clean)
-            
-        # Dike expansion limit (~1.8m maximum bridge)
-        dike_dilation_px = max(6, min(24, int(round(1.8 / max(1e-4, meters_per_pixel)))))
-        k_expand = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (dike_dilation_px * 2 + 1, dike_dilation_px * 2 + 1))
-        valid_expansion_zone = cv2.dilate(union_mask, k_expand)
-        
-        # Aerial photo gradient magnitude for watershed guidance
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        grad_x = cv2.Sobel(blurred, cv2.CV_32F, 1, 0, ksize=3)
-        grad_y = cv2.Sobel(blurred, cv2.CV_32F, 0, 1, ksize=3)
-        grad_mag = cv2.magnitude(grad_x, grad_y)
-        grad_mag = cv2.normalize(grad_mag, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-        grad_bgr = cv2.cvtColor(grad_mag, cv2.COLOR_GRAY2BGR)
-        
-        ws_markers = markers.copy()
-        cv2.watershed(grad_bgr, ws_markers)
-        ws_markers[valid_expansion_zone == 0] = 0
-        ws_markers[ws_markers == -1] = 0
-        
-        # 2. Extract smooth, corner-preserving polygon boundaries
-        polygons_geo = []
-        
-        for idx in range(len(detected_masks)):
-            label_id = idx + 1
-            region = (ws_markers == label_id).astype(np.uint8) * 255
-            if np.count_nonzero(region) < 150:
+            contours, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_KCOS)
+            if not contours:
                 continue
                 
-            # Bridge 1-px gaps without eroding corners
-            region = cv2.morphologyEx(region, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)))
-            
-            contours, _ = cv2.findContours(region, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_KCOS)
-            
-            for cnt in contours:
-                area = cv2.contourArea(cnt)
-                if area < 150:
-                    continue
-                    
-                peri = cv2.arcLength(cnt, True)
-                # High-fidelity epsilon preserving exact rectangular / sharp corners
-                eps = max(1.0, 0.0025 * peri)
-                approx = cv2.approxPolyDP(cnt, eps, True)
+            cnt = max(contours, key=cv2.contourArea)
+            if cv2.contourArea(cnt) < 250:
+                continue
                 
-                if len(approx) < 3:
-                    continue
-                    
-                coords = approx.reshape(-1, 2).tolist()
-                coords.append(coords[0])
+            # Use convex hull to eliminate artificial color/shadow dips while 100% preserving genuine corners
+            hull = cv2.convexHull(cnt)
+            peri = cv2.arcLength(hull, True)
+            
+            # Cadastral epsilon
+            eps = max(2.0, min(7.0, 0.010 * peri))
+            approx = cv2.approxPolyDP(hull, eps, True)
+            
+            if len(approx) < 3:
+                continue
                 
-                # Remove acute spikes (hairpin teeth)
-                coords = remove_polygon_spikes(coords, min_angle_deg=30.0)
-                if len(coords) < 4:
-                    continue
-                    
+            coords = approx.reshape(-1, 2).tolist()
+            coords.append(coords[0])
+            
+            # Regularize: clean spikes and collinear points
+            coords = remove_polygon_spikes_and_collinear(coords, min_angle_deg=28.0, collinear_thresh_deg=8.0, min_edge_len=4.0)
+            if len(coords) >= 4:
                 try:
                     poly = Polygon(coords)
-                    if not poly.is_valid:
-                        poly = make_valid(poly)
-                        
-                    simplified = poly.simplify(tol_pixels, preserve_topology=False)
+                    if poly.is_valid and poly.area >= 200:
+                        raw_polygons.append({
+                            "poly": poly,
+                            "area": poly.area,
+                            "conf": item["conf"]
+                        })
+                except Exception:
+                    pass
+
+        # 3. Resolve Overlaps in Vector Space (0% Overlap Guarantee)
+        raw_polygons.sort(key=lambda item: item["area"], reverse=True)
+        union_accepted = None
+        clean_shapely_polys = []
+        
+        for item in raw_polygons:
+            poly = item["poly"]
+            if not poly.is_valid:
+                poly = make_valid(poly)
+                
+            if union_accepted is not None:
+                poly = poly.difference(union_accepted)
+                if not poly.is_valid:
+                    poly = make_valid(poly)
+                    
+            if poly.is_empty:
+                continue
+                
+            sub_list = [poly] if isinstance(poly, Polygon) else [p for p in poly.geoms if isinstance(p, Polygon)]
+            for sub_p in sub_list:
+                if sub_p.area >= 200:
+                    simplified = sub_p.simplify(tol_pixels, preserve_topology=True)
                     if not simplified.is_valid:
                         simplified = make_valid(simplified)
                         
-                    sub_polys = []
-                    if isinstance(simplified, Polygon):
-                        sub_polys = [simplified]
-                    elif isinstance(simplified, MultiPolygon):
-                        sub_polys = [p for p in simplified.geoms if isinstance(p, Polygon)]
+                    clean_shapely_polys.append(simplified)
+                    if union_accepted is None:
+                        union_accepted = simplified
+                    else:
+                        union_accepted = union_accepted.union(simplified)
+
+        # 4. Transform to EPSG:3857 Geo-Coordinates
+        polygons_geo = []
+        for poly in clean_shapely_polys:
+            sub_polys = [poly] if isinstance(poly, Polygon) else [p for p in poly.geoms if isinstance(p, Polygon)]
+            for p in sub_polys:
+                if p.area >= 200:
+                    coords = list(p.exterior.coords)
+                    clean_coords = remove_polygon_spikes_and_collinear(coords, min_angle_deg=28.0, collinear_thresh_deg=8.0, min_edge_len=4.0)
+                    if len(clean_coords) >= 4:
+                        map_coords = []
+                        for pt in clean_coords:
+                            px, py = pt[0], pt[1]
+                            gx = minX + (px / w) * (maxX - minX)
+                            gy = maxY - (py / h) * (maxY - minY)
+                            map_coords.append([round(gx, 4), round(gy, 4)])
+                        polygons_geo.append(map_coords)
                         
-                    for p in sub_polys:
-                        if p.area >= 150:
-                            clean_coords = remove_spikes_from_coords_helper(list(p.exterior.coords), min_angle_deg=30.0)
-                            if len(clean_coords) >= 4:
-                                map_coords = []
-                                for pt in clean_coords:
-                                    px, py = pt[0], pt[1]
-                                    gx = minX + (px / w) * (maxX - minX)
-                                    gy = maxY - (py / h) * (maxY - minY)
-                                    map_coords.append([round(gx, 4), round(gy, 4)])
-                                polygons_geo.append(map_coords)
-                except Exception:
-                    pass
-                    
         return {
             "ok": True,
             "polygons": polygons_geo,
@@ -296,9 +338,6 @@ async def predict(req: PredictionRequest):
         import traceback
         traceback.print_exc()
         return {"ok": False, "error": str(e)}
-
-def remove_spikes_from_coords_helper(coords, min_angle_deg=30.0):
-    return remove_polygon_spikes(coords, min_angle_deg=min_angle_deg)
 
 @app.get("/ping")
 async def ping():

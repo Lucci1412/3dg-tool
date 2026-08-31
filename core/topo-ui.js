@@ -112,8 +112,8 @@
                 <div class="topo-settings-body">
                     <div class="topo-settings-row">
                         <div class="topo-settings-label">
-                            <span>Phím bật <b>Chọn / Sửa</b>:</span>
-                            <small class="topo-settings-sub">Nhấn phím tắt để lập tức chuyển về chế độ Chọn/Sửa của 3DG</small>
+                            <span>Switch <b>Chọn/Sửa ↔ Vẽ Đường</b>:</span>
+                            <small class="topo-settings-sub">Nhấn phím tắt để chuyển đổi qua lại giữa Chọn/Chỉnh Sửa và Vẽ Đường</small>
                         </div>
                         <div class="topo-key-recorder-wrap">
                             <button type="button" class="topo-key-recorder-btn" id="topo-key-recorder-btn" title="Click để đổi phím tắt">
@@ -121,42 +121,62 @@
                             </button>
                         </div>
                     </div>
-                    <div class="topo-quick-shortcuts">
-                        <span class="topo-quick-title">Gợi ý:</span>
-                        <div class="topo-quick-chips">
-                            <button type="button" class="topo-chip-btn" data-key="Space">Space</button>
-                            <button type="button" class="topo-chip-btn" data-key="S">S</button>
-                            <button type="button" class="topo-chip-btn" data-key="V">V</button>
-                            <button type="button" class="topo-chip-btn" data-key="Escape">Esc</button>
-                        </div>
-                    </div>
-                    <div class="topo-settings-hint" id="topo-settings-hint">
-                        💡 <b>Mẹo:</b> Nhấn phím <kbd id="topo-settings-kbd">Space</kbd> bất kỳ lúc nào để thoát vẽ hoặc bật chế độ Chọn/Sửa.
+                   
+                   
+
+                    <!-- Map Navigation Shortcuts Section (Di chuyển màn hình) -->
+                    <div style="margin:12px 0 8px 0; border-top:1px solid #e2e8f0;"></div>
+                    <div style="font-weight:700; color:#0284c7; font-size:12px; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between;">
+                        <span style="display:flex; align-items:center; gap:5px;">🎮 Di Chuyển Màn Hình (Bàn Phím)</span>
+                        <label style="display:inline-flex; align-items:center; gap:4px; font-weight:600; font-size:11px; cursor:pointer; color:#334155;">
+                            <input type="checkbox" id="topo-nav-enabled-input" ${localStorage.getItem('topo_shortcut_nav_enabled') !== 'false' ? 'checked' : ''} style="cursor:pointer;"> Bật
+                        </label>
                     </div>
 
-                    <!-- Gemini AI & Few-Shot Configuration -->
-                    <div style="margin:12px 0 8px 0; border-top:1px solid #e2e8f0;"></div>
-                    <div style="font-weight:700; color:#15803d; font-size:12px; margin-bottom:8px; display:flex; align-items:center; gap:5px;">
-                        <span>⚡ Cấu Hình Tự Động Vẽ Ruộng (Computer Vision)</span>
-                    </div>
-                    <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:8px;">
-                        <div style="display:flex; justify-content:space-between; align-items:center;">
-                            <span style="font-weight:600; font-size:11px; color:#334155;">Độ nhạy nhận diện bờ ruộng:</span>
-                            <span id="topo-cv-sensitivity-val" style="font-weight:bold; font-size:11px; color:#15803d;">0.65</span>
+                    <!-- Presets (WASD vs Arrows) -->
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; font-size:11px;">
+                        <span style="color:#64748b; font-weight:600;">Mẫu phím nhanh:</span>
+                        <div style="display:flex; gap:6px;">
+                            <button type="button" class="topo-chip-btn" id="topo-preset-wasd" style="padding:2px 8px; font-size:11px; font-weight:600;">W A S D</button>
+                            <button type="button" class="topo-chip-btn" id="topo-preset-arrows" style="padding:2px 8px; font-size:11px; font-weight:600;">↑ ↓ ← →</button>
                         </div>
-                        <input type="range" id="topo-cv-sensitivity-input" min="0.3" max="1.0" step="0.05" value="${localStorage.getItem('topo_cv_sensitivity') || '0.65'}" style="width:100%; cursor:pointer;">
-                        <small style="color:#64748b; font-size:10px;">Nhỏ hơn = bắt được nhiều bờ mờ; Lớn hơn = chỉ bắt bờ đậm tương phản cao.</small>
                     </div>
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                        <span style="font-weight:600; font-size:11px; color:#334155;">Nối bờ đứt quãng (Dilation):</span>
-                        <select id="topo-cv-dilate-select" style="height:24px; font-size:11px; border:1px solid #cbd5e1; border-radius:4px; padding:0 4px; color:#1e293b;">
-                            <option value="1" ${(localStorage.getItem('topo_cv_dilate') || '1') === '1' ? 'selected' : ''}>1 lần (Chuẩn)</option>
-                            <option value="2" ${localStorage.getItem('topo_cv_dilate') === '2' ? 'selected' : ''}>2 lần (Bờ nhiều cây/đứt gãy)</option>
-                        </select>
+
+                    <!-- 4 directional keys grid -->
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px; margin-bottom:8px;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; background:#f8fafc; padding:4px 8px; border:1px solid #e2e8f0; border-radius:5px;">
+                            <span style="font-size:11px; font-weight:600; color:#475569;">⬆️ Lên:</span>
+                            <button type="button" class="topo-nav-key-btn" data-dir="keyUp" title="Click để đổi phím di chuyển Lên" style="padding:2px 8px; font-size:11px; font-weight:bold; border:1px solid #cbd5e1; border-radius:4px; background:#fff; cursor:pointer; min-width:36px;">
+                                <span id="topo-nav-key-up">${localStorage.getItem('topo_shortcut_nav_up') || 'W'}</span>
+                            </button>
+                        </div>
+                        <div style="display:flex; align-items:center; justify-content:space-between; background:#f8fafc; padding:4px 8px; border:1px solid #e2e8f0; border-radius:5px;">
+                            <span style="font-size:11px; font-weight:600; color:#475569;">⬇️ Xuống:</span>
+                            <button type="button" class="topo-nav-key-btn" data-dir="keyDown" title="Click để đổi phím di chuyển Xuống" style="padding:2px 8px; font-size:11px; font-weight:bold; border:1px solid #cbd5e1; border-radius:4px; background:#fff; cursor:pointer; min-width:36px;">
+                                <span id="topo-nav-key-down">${localStorage.getItem('topo_shortcut_nav_down') || 'S'}</span>
+                            </button>
+                        </div>
+                        <div style="display:flex; align-items:center; justify-content:space-between; background:#f8fafc; padding:4px 8px; border:1px solid #e2e8f0; border-radius:5px;">
+                            <span style="font-size:11px; font-weight:600; color:#475569;">⬅️ Trái:</span>
+                            <button type="button" class="topo-nav-key-btn" data-dir="keyLeft" title="Click để đổi phím di chuyển Trái" style="padding:2px 8px; font-size:11px; font-weight:bold; border:1px solid #cbd5e1; border-radius:4px; background:#fff; cursor:pointer; min-width:36px;">
+                                <span id="topo-nav-key-left">${localStorage.getItem('topo_shortcut_nav_left') || 'A'}</span>
+                            </button>
+                        </div>
+                        <div style="display:flex; align-items:center; justify-content:space-between; background:#f8fafc; padding:4px 8px; border:1px solid #e2e8f0; border-radius:5px;">
+                            <span style="font-size:11px; font-weight:600; color:#475569;">➡️ Phải:</span>
+                            <button type="button" class="topo-nav-key-btn" data-dir="keyRight" title="Click để đổi phím di chuyển Phải" style="padding:2px 8px; font-size:11px; font-weight:bold; border:1px solid #cbd5e1; border-radius:4px; background:#fff; cursor:pointer; min-width:36px;">
+                                <span id="topo-nav-key-right">${localStorage.getItem('topo_shortcut_nav_right') || 'D'}</span>
+                            </button>
+                        </div>
                     </div>
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; margin-bottom:4px;">
-                        <span style="font-weight:600; font-size:11px; color:#334155;">Tự động lưu nét vẽ lên 3DG:</span>
-                        <input type="checkbox" id="topo-ai-auto-commit-input" ${localStorage.getItem('topo_ai_auto_commit') === 'true' ? 'checked' : ''} style="cursor:pointer; width:16px; height:16px;">
+
+                    <!-- Speed range slider -->
+                    <div style="display:flex; flex-direction:column; gap:4px; margin-bottom:4px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span style="font-weight:600; font-size:11px; color:#334155;">Tốc độ lướt màn hình:</span>
+                            <span id="topo-nav-speed-val" style="font-weight:bold; font-size:11px; color:#0284c7;">${localStorage.getItem('topo_shortcut_nav_speed') || '24'} px</span>
+                        </div>
+                        <input type="range" id="topo-nav-speed-input" min="10" max="60" step="2" value="${localStorage.getItem('topo_shortcut_nav_speed') || '24'}" style="width:100%; cursor:pointer;">
                     </div>
                 </div>
             </div>
@@ -176,6 +196,9 @@
                         </button>
                         <button class="topo-btn-secondary" id="topo-btn-cut-line" title="Cắt nét vẽ thành các đoạn khi đi qua đường cắt (Cut Stroke)">
                             <span>Cắt Nét</span>
+                        </button>
+                        <button class="topo-btn-secondary" id="topo-btn-clean-duplicates" title="Tự động quét toàn bộ bản đồ và xóa các nét vẽ / thửa đất bị trùng lặp hoàn toàn (Duplicate Lines)">
+                            <span>Xóa Nét Trùng</span>
                         </button>
                         <button class="topo-btn-secondary" id="topo-btn-area-color">
                             <span>Đổi Màu Vùng</span>
@@ -325,6 +348,7 @@
         const scanBtn = document.getElementById('topo-btn-scan');
         const smartDrawBtn = document.getElementById('topo-btn-smart-draw');
         const cutLineBtn = document.getElementById('topo-btn-cut-line');
+        const cleanDuplicatesBtn = document.getElementById('topo-btn-clean-duplicates');
 
         // 0. Floating Action Button (Kính lúp) click to toggle panel
         if (fab) {
@@ -416,40 +440,75 @@
             });
         });
 
-        // 0.6 Gemini AI Settings & Few-Shot Samples Manager
-        const aiApiKeyInput = document.getElementById('topo-ai-api-key-input');
-        const aiModelSelect = document.getElementById('topo-ai-model-select');
-        const testAiKeyBtn = document.getElementById('topo-btn-test-ai-key');
-        const clearAiSamplesBtn = document.getElementById('topo-btn-clear-ai-samples');
-        // 0.6 Computer Vision Parcel Draw Settings
-        const cvSensitivityInput = document.getElementById('topo-cv-sensitivity-input');
-        const cvSensitivityVal = document.getElementById('topo-cv-sensitivity-val');
-        const cvDilateSelect = document.getElementById('topo-cv-dilate-select');
-
-        if (cvSensitivityInput && cvSensitivityVal) {
-            const savedSens = localStorage.getItem('topo_cv_sensitivity') || '0.65';
-            cvSensitivityInput.value = savedSens;
-            cvSensitivityVal.textContent = savedSens;
-            cvSensitivityInput.addEventListener('input', () => {
-                cvSensitivityVal.textContent = cvSensitivityInput.value;
-                localStorage.setItem('topo_cv_sensitivity', cvSensitivityInput.value);
+        // 0.5 Map Navigation Keyboard Controls
+        const navEnabledInput = document.getElementById('topo-nav-enabled-input');
+        if (navEnabledInput) {
+            navEnabledInput.addEventListener('change', () => {
+                if (window.__topoShortcuts) {
+                    window.__topoShortcuts.setSetting('navEnabled', navEnabledInput.checked);
+                }
             });
         }
 
-        if (cvDilateSelect) {
-            cvDilateSelect.value = localStorage.getItem('topo_cv_dilate') || '1';
-            cvDilateSelect.addEventListener('change', () => {
-                localStorage.setItem('topo_cv_dilate', cvDilateSelect.value);
+        const navSpeedInput = document.getElementById('topo-nav-speed-input');
+        const navSpeedVal = document.getElementById('topo-nav-speed-val');
+        if (navSpeedInput && navSpeedVal) {
+            navSpeedInput.addEventListener('input', () => {
+                navSpeedVal.textContent = `${navSpeedInput.value} px`;
+                if (window.__topoShortcuts) {
+                    window.__topoShortcuts.setSetting('speed', parseFloat(navSpeedInput.value));
+                }
             });
         }
 
-        const aiAutoCommitInput = document.getElementById('topo-ai-auto-commit-input');
-        if (aiAutoCommitInput) {
-            aiAutoCommitInput.checked = localStorage.getItem('topo_ai_auto_commit') === 'true';
-            aiAutoCommitInput.addEventListener('change', () => {
-                localStorage.setItem('topo_ai_auto_commit', aiAutoCommitInput.checked ? 'true' : 'false');
+        const presetWasdBtn = document.getElementById('topo-preset-wasd');
+        const presetArrowsBtn = document.getElementById('topo-preset-arrows');
+
+        function updateNavKeysDisplay() {
+            if (!window.__topoShortcuts) return;
+            const cur = window.__topoShortcuts.getSettings();
+            const elUp = document.getElementById('topo-nav-key-up');
+            const elDown = document.getElementById('topo-nav-key-down');
+            const elLeft = document.getElementById('topo-nav-key-left');
+            const elRight = document.getElementById('topo-nav-key-right');
+            if (elUp) elUp.textContent = cur.keyUp;
+            if (elDown) elDown.textContent = cur.keyDown;
+            if (elLeft) elLeft.textContent = cur.keyLeft;
+            if (elRight) elRight.textContent = cur.keyRight;
+        }
+
+        if (presetWasdBtn) {
+            presetWasdBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (window.__topoShortcuts) window.__topoShortcuts.applyPreset('WASD');
+                updateNavKeysDisplay();
             });
         }
+
+        if (presetArrowsBtn) {
+            presetArrowsBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (window.__topoShortcuts) window.__topoShortcuts.applyPreset('ARROWS');
+                updateNavKeysDisplay();
+            });
+        }
+
+        const navKeyBtns = document.querySelectorAll('.topo-nav-key-btn');
+        navKeyBtns.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const dir = btn.dataset.dir;
+                const span = btn.querySelector('span');
+                if (span) span.textContent = '...';
+
+                if (window.__topoShortcuts) {
+                    window.__topoShortcuts.startRecording(dir, (pressedKey) => {
+                        window.__topoShortcuts.setSetting(dir, pressedKey);
+                        updateNavKeysDisplay();
+                    });
+                }
+            });
+        });
 
         function isTextEditingElement(el) {
             if (!el) return false;
@@ -493,7 +552,7 @@
                 e.stopPropagation();
                 cancelAllInteractiveModes();
                 setActiveModeButton('topo-btn-scan');
-                ensureNative3dgSelectEditModeActive();
+                toggleNative3dgEditAndLineMode();
             }
         }, true);
 
@@ -543,6 +602,8 @@
             const smartDrawEl = document.getElementById('topo-btn-smart-draw');
             const cutLineEl = document.getElementById('topo-btn-cut-line');
             const areaDeleteEl = document.getElementById('topo-btn-area-delete');
+            const aiDrawEl = document.getElementById('topo-btn-ai-draw');
+            const cleanDuplicatesEl = document.getElementById('topo-btn-clean-duplicates');
 
             if (newMode !== currentAppMode) {
                 currentAppMode = newMode;
@@ -558,8 +619,10 @@
                 }
             }
 
+            if (aiDrawEl) aiDrawEl.style.display = is3d ? 'none' : '';
             if (smartDrawEl) smartDrawEl.style.display = is3d ? 'none' : '';
             if (cutLineEl) cutLineEl.style.display = is3d ? 'none' : '';
+            if (cleanDuplicatesEl) cleanDuplicatesEl.style.display = is3d ? 'none' : '';
             if (areaDeleteEl) areaDeleteEl.style.display = is3d ? 'none' : '';
         }
 
@@ -648,9 +711,12 @@
         const statsContainer = document.getElementById('topo-stats');
 
         function setUIVisibilityMode(mode) {
+            const aiBarEl = document.getElementById('topo-ai-bar');
             if (mode === 'scan') {
                 if (errorListContainer) errorListContainer.style.display = 'block';
                 if (statsContainer) statsContainer.style.display = 'block';
+                if (areaBar) areaBar.classList.add('topo-drawer-hidden');
+                if (aiBarEl) aiBarEl.classList.add('topo-drawer-hidden');
             } else {
                 if (errorListContainer) errorListContainer.style.display = 'none';
                 if (statsContainer) statsContainer.style.display = 'none';
@@ -686,7 +752,6 @@
             }
             setSmartDrawControlsVisible(false);
             currentAreaMode = null;
-            setUIVisibilityMode('scan');
 
             // Đảm bảo toàn bộ các canvas vẽ tương tác đều được reset về pointer-events: none và cursor: default
             ['topo-area-draw-canvas', 'topo-cut-line-canvas', 'topo-smart-draw-canvas', 'topo-3d-area-draw-canvas', 'topo-ai-draw-canvas'].forEach(id => {
@@ -779,6 +844,125 @@
                 setTimeout(trySelectEditDOM, 250);
             } catch (e) {
                 console.warn('[CheckTopo] Failed to auto-trigger native "Chọn/Sửa" mode:', e);
+            }
+        }
+
+        function ensureNative3dgLineModeActive(landType = 'DGT') {
+            try {
+                // 1. Ensure 3DG Edit Drawer is open
+                const isPanelOpen = Array.from(document.querySelectorAll('div, span, h1, h2, h3, header'))
+                    .some(el => (el.textContent || '').trim().includes('Biên tập dữ liệu'));
+
+                if (!isPanelOpen) {
+                    const btns = Array.from(document.querySelectorAll('button'));
+                    const editBtn = btns.find(b => {
+                        const svg = b.querySelector('svg');
+                        if (!svg) return false;
+                        const html = svg.outerHTML || '';
+                        return html.includes('16.24 11.51') || html.includes('16.24') || html.includes('20.71 7.04') || (b.title && b.title.includes('Biên tập'));
+                    });
+
+                    if (editBtn) {
+                        editBtn.click();
+                    }
+                }
+
+                const targetText = (landType === 'DTL') ? 'Sông' : 'Đường';
+
+                // 2. Click native line segment item
+                const trySelectLine = () => {
+                    const labels = Array.from(document.querySelectorAll('.ant-segmented-item, label, button'));
+                    const lineLabel = labels.find(el => {
+                        const text = (el.textContent || '').trim();
+                        const svg = el.querySelector('svg');
+                        const svgHtml = svg?.outerHTML || '';
+                        return text === targetText || text === 'Đường' || (text.includes('Đường') && !text.includes('Smart') && !text.includes('Vẽ')) || svgHtml.includes('M3.5 18.5') || svgHtml.includes('M4 19');
+                    });
+
+                    if (lineLabel) {
+                        const input = lineLabel.querySelector('input') || lineLabel.closest('label')?.querySelector('input');
+                        if (input && !input.checked) {
+                            lineLabel.click();
+                            input.click();
+                            input.dispatchEvent(new Event('change', { bubbles: true }));
+                        } else if (!lineLabel.classList.contains('ant-segmented-item-selected')) {
+                            lineLabel.click();
+                        }
+                    }
+                };
+
+                trySelectLine();
+                setTimeout(trySelectLine, 80);
+                setTimeout(trySelectLine, 250);
+            } catch (e) {
+                console.warn('[TopoUI] Failed to trigger native Line mode:', e);
+            }
+        }
+
+        let toastTimeout = null;
+        function showShortcutToggleToast(text) {
+            let toastEl = document.getElementById('topo-shortcut-toggle-toast');
+            if (!toastEl) {
+                toastEl = document.createElement('div');
+                toastEl.id = 'topo-shortcut-toggle-toast';
+                toastEl.style.cssText = `
+                    position: fixed;
+                    bottom: 30px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background: rgba(15, 23, 42, 0.92);
+                    backdrop-filter: blur(8px);
+                    color: #ffffff;
+                    padding: 8px 18px;
+                    border-radius: 20px;
+                    font-size: 13px;
+                    font-weight: 600;
+                    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+                    border: 1px solid rgba(255,255,255,0.15);
+                    z-index: 9999999;
+                    pointer-events: none;
+                    transition: opacity 0.2s ease, transform 0.2s ease;
+                    opacity: 0;
+                `;
+                document.body.appendChild(toastEl);
+            }
+            toastEl.textContent = text;
+            toastEl.style.opacity = '1';
+            toastEl.style.transform = 'translateX(-50%) translateY(0)';
+            if (toastTimeout) clearTimeout(toastTimeout);
+            toastTimeout = setTimeout(() => {
+                toastEl.style.opacity = '0';
+                toastEl.style.transform = 'translateX(-50%) translateY(10px)';
+            }, 1000);
+        }
+
+        let lastShortcutMode = 'LINE'; // First press activates SELECT_EDIT
+
+        function toggleNative3dgEditAndLineMode() {
+            // Check DOM state: Is "Chọn/Sửa" currently active?
+            const labels = Array.from(document.querySelectorAll('.ant-segmented-item, label'));
+            const selectEditLabel = labels.find(el => {
+                const text = (el.textContent || '').trim();
+                const svg = el.querySelector('svg');
+                const svgHtml = svg?.outerHTML || '';
+                return text.includes('Chọn/Sửa') || text === 'Chọn' || text === 'Sửa' || svgHtml.includes('M4.037 4.688') || svgHtml.includes('4.037');
+            });
+
+            const isSelectEditActive = selectEditLabel && (
+                selectEditLabel.classList.contains('ant-segmented-item-selected') ||
+                selectEditLabel.querySelector('input:checked') ||
+                selectEditLabel.closest('label')?.querySelector('input:checked')
+            );
+
+            // Toggle between "Chọn / Sửa" and "Chọn đường"
+            if (isSelectEditActive) {
+                ensureNative3dgLineModeActive('DGT');
+                lastShortcutMode = 'LINE';
+                showShortcutToggleToast('✏️ Chế độ: Chọn / Vẽ Đường');
+            } else {
+                ensureNative3dgSelectEditModeActive();
+                lastShortcutMode = 'SELECT_EDIT';
+                showShortcutToggleToast('👆 Chế độ: Chọn / Chỉnh Sửa');
             }
         }
 
@@ -1017,6 +1201,38 @@
                         }
                         if (areaConfirmBtn) areaConfirmBtn.style.display = 'none';
                     }
+                }
+            });
+        }
+
+        // 5.4 Clean Duplicates button (Xóa Nét Trùng)
+        if (cleanDuplicatesBtn) {
+            cleanDuplicatesBtn.addEventListener('click', async () => {
+                cancelAllInteractiveModes();
+                setActiveModeButton('topo-btn-scan');
+                setUIVisibilityMode('scan');
+
+                showShortcutToggleToast('🔍 Đang quét và xóa nét trùng lặp...');
+
+                try {
+                    if (window.__topoCleanDuplicateLines) {
+                        const res = await window.__topoCleanDuplicateLines({ tolerance: 0.08 });
+                        if (res && res.ok) {
+                            if (res.deletedCount > 0) {
+                                showShortcutToggleToast(`🎉 Đã xóa thành công ${res.deletedCount} nét trùng lặp!`);
+                                log(`Đã xóa ${res.deletedCount} nét trùng lặp trên tổng số ${res.totalScanned} đối tượng.`);
+                            } else {
+                                showShortcutToggleToast('✨ Tuyệt vời! Không có nét nào bị trùng lặp.');
+                            }
+                        } else {
+                            showShortcutToggleToast(`⚠️ ${res?.error || 'Lỗi khi quét nét trùng'}`);
+                        }
+                    } else {
+                        showShortcutToggleToast('⚠️ Không tìm thấy module Xóa Nét Trùng.');
+                    }
+                } catch (err) {
+                    console.error('[TopoUI] Error cleaning duplicates:', err);
+                    showShortcutToggleToast('❌ Lỗi khi xóa nét trùng.');
                 }
             });
         }
