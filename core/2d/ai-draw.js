@@ -279,6 +279,16 @@
         const cropCtx = cropCanvas.getContext('2d');
         cropCtx.drawImage(sourceCanvas, srcX, srcY, srcW, srcH, 0, 0, cropCanvas.width, cropCanvas.height);
 
+        // Compute exact geographic coordinates corresponding to the crop canvas bounds
+        const actualP1 = map.getCoordinateFromPixel([srcX / scaleX, srcY / scaleY]);
+        const actualP2 = map.getCoordinateFromPixel([(srcX + cropCanvas.width) / scaleX, (srcY + cropCanvas.height) / scaleY]);
+        const accurateExtent = (actualP1 && actualP2) ? [
+            Math.min(actualP1[0], actualP2[0]),
+            Math.min(actualP1[1], actualP2[1]),
+            Math.max(actualP1[0], actualP2[0]),
+            Math.max(actualP1[1], actualP2[1])
+        ] : extent;
+
         return {
             canvas: cropCanvas,
             width: cropCanvas.width,
@@ -287,7 +297,7 @@
             vpMinY: vpMinY,
             vpWidth: vpWidth,
             vpHeight: vpHeight,
-            extent: extent
+            extent: accurateExtent
         };
     }
 
@@ -733,8 +743,79 @@
         });
     }
 
+    // ===== SPIKE & SAWTOOTH FILTER =====
+    function removePolygonSpikes(coords, minAngleDeg = 30.0) {
+        if (!coords || coords.length < 4) return coords;
+
+        let isClosed = false;
+        const first = coords[0];
+        const last = coords[coords.length - 1];
+        if (Math.hypot(first[0] - last[0], first[1] - last[1]) < 1e-4) {
+            isClosed = true;
+        }
+
+        let pts = isClosed ? coords.slice(0, -1) : [...coords];
+        let changed = true;
+        let iterations = 0;
+
+        while (changed && pts.length > 3 && iterations < 8) {
+            changed = false;
+            iterations++;
+            const n = pts.length;
+            const toRemove = new Set();
+
+            for (let i = 0; i < n; i++) {
+                const pPrev = pts[(i - 1 + n) % n];
+                const pCurr = pts[i];
+                const pNext = pts[(i + 1) % n];
+
+                const v1x = pPrev[0] - pCurr[0];
+                const v1y = pPrev[1] - pCurr[1];
+                const v2x = pNext[0] - pCurr[0];
+                const v2y = pNext[1] - pCurr[1];
+
+                const len1 = Math.hypot(v1x, v1y);
+                const len2 = Math.hypot(v2x, v2y);
+
+                if (len1 < 1e-4 || len2 < 1e-4) {
+                    toRemove.add(i);
+                    changed = true;
+                    continue;
+                }
+
+                const dot = (v1x * v2x + v1y * v2y) / (len1 * len2);
+                const clampedDot = Math.max(-1.0, Math.min(1.0, dot));
+                const angleDeg = Math.acos(clampedDot) * (180.0 / Math.PI);
+
+                // Acute sawtooth / lightning spike
+                if (angleDeg < minAngleDeg) {
+                    toRemove.add(i);
+                    changed = true;
+                }
+            }
+
+            if (toRemove.size > 0 && pts.length - toRemove.size >= 3) {
+                pts = pts.filter((_, idx) => !toRemove.has(idx));
+            } else {
+                break;
+            }
+        }
+
+        if (isClosed && pts.length >= 3) {
+            pts.push([...pts[0]]);
+        }
+        return pts;
+    }
+
     function snapEndpointsToNearby(features, toleranceMeters = 0.5) {
         if (!features || features.length === 0) return features;
+
+        // Clean spikes on all features first
+        features.forEach(feat => {
+            if (feat.coords && feat.coords.length >= 4) {
+                feat.coords = removePolygonSpikes(feat.coords, 30.0);
+            }
+        });
 
         const endpoints = [];
         features.forEach((feat, featIdx) => {
@@ -750,8 +831,23 @@
                 const dist = Math.hypot(ep1.coord[0] - ep2.coord[0], ep1.coord[1] - ep2.coord[1]);
                 if (dist <= toleranceMeters) {
                     const avgCoord = [(ep1.coord[0] + ep2.coord[0]) / 2, (ep1.coord[1] + ep2.coord[1]) / 2];
-                    features[ep1.featIdx].coords[ep1.ptIdx] = avgCoord;
-                    features[ep2.featIdx].coords[ep2.ptIdx] = avgCoord;
+                    
+                    const feat1 = features[ep1.featIdx];
+                    const feat2 = features[ep2.featIdx];
+
+                    feat1.coords[ep1.ptIdx] = avgCoord;
+                    // Maintain closed polygon consistency
+                    if (feat1.coords.length >= 3) {
+                        if (ep1.ptIdx === 0) feat1.coords[feat1.coords.length - 1] = avgCoord;
+                        else if (ep1.ptIdx === feat1.coords.length - 1) feat1.coords[0] = avgCoord;
+                    }
+
+                    feat2.coords[ep2.ptIdx] = avgCoord;
+                    if (feat2.coords.length >= 3) {
+                        if (ep2.ptIdx === 0) feat2.coords[feat2.coords.length - 1] = avgCoord;
+                        else if (ep2.ptIdx === feat2.coords.length - 1) feat2.coords[0] = avgCoord;
+                    }
+
                     ep1.coord = avgCoord;
                     ep2.coord = avgCoord;
                 }
@@ -1633,9 +1729,23 @@
                 });
             }
 
+            // Clean spikes on all features before snapping/rendering
+            processed.forEach(feat => {
+                if (feat.coords && feat.coords.length >= 4) {
+                    feat.coords = removePolygonSpikes(feat.coords, 30.0);
+                }
+            });
+
             // Snap endpoints & shared boundaries
             const autoSnap = localStorage.getItem(STORAGE_KEY_AUTO_SNAP) !== 'false';
             recognizedFeatures = autoSnap ? snapEndpointsToNearby(processed, 0.4) : processed;
+
+            // Final spike clean after snapping
+            recognizedFeatures.forEach(feat => {
+                if (feat.coords && feat.coords.length >= 4) {
+                    feat.coords = removePolygonSpikes(feat.coords, 30.0);
+                }
+            });
 
             const modeText = usedAI ? aiModelName : 'Computer Vision';
             updateAIStatus(`🎉 Đã nhận diện được ${recognizedFeatures.length} thửa ruộng (${modeText})! Nhấn Enter để thêm vào bản đồ.`, 'success');
