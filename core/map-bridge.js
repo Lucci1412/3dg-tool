@@ -600,8 +600,30 @@
             try {
                 q.dispatch(prev => {
                     if (!Array.isArray(prev)) return [groupObject];
-                    const exists = prev.some(item => (item.id === featureId || item.group?.id === featureId || item._id === featureId));
-                    if (exists) return prev;
+                    const idx = prev.findIndex(item => (item?.id === featureId || item?.group?.id === featureId || item?._id === featureId));
+                    if (idx !== -1) {
+                        const updated = [...prev];
+                        const existing = updated[idx];
+                        if (existing?.group) {
+                            updated[idx] = {
+                                ...existing,
+                                group: {
+                                    ...existing.group,
+                                    pointCount: pointCount,
+                                    feature: olFeature || existing.group.feature,
+                                    geojsonFeatureObject: geojsonFeatureObject || existing.group.geojsonFeatureObject
+                                }
+                            };
+                        } else if (existing) {
+                            updated[idx] = {
+                                ...existing,
+                                pointCount: pointCount,
+                                feature: olFeature || existing.feature,
+                                geojsonFeatureObject: geojsonFeatureObject || existing.geojsonFeatureObject
+                            };
+                        }
+                        return updated;
+                    }
                     if (prev.length > 0 && prev[0].group) {
                         return [...prev, itemContainer];
                     }
@@ -650,8 +672,30 @@
                                     try {
                                         s.queue.dispatch(prev => {
                                             if (!Array.isArray(prev)) return prev;
-                                            const exists = prev.some(item => (item?.id === featureId || item?.group?.id === featureId || item?._id === featureId));
-                                            if (exists) return prev;
+                                            const eIdx = prev.findIndex(item => (item?.id === featureId || item?.group?.id === featureId || item?._id === featureId));
+                                            if (eIdx !== -1) {
+                                                const updated = [...prev];
+                                                const existing = updated[eIdx];
+                                                if (existing?.group) {
+                                                    updated[eIdx] = {
+                                                        ...existing,
+                                                        group: {
+                                                            ...existing.group,
+                                                            pointCount: pointCount,
+                                                            feature: olFeature || existing.group.feature,
+                                                            geojsonFeatureObject: geojsonFeatureObject || existing.group.geojsonFeatureObject
+                                                        }
+                                                    };
+                                                } else if (existing) {
+                                                    updated[eIdx] = {
+                                                        ...existing,
+                                                        pointCount: pointCount,
+                                                        feature: olFeature || existing.feature,
+                                                        geojsonFeatureObject: geojsonFeatureObject || existing.geojsonFeatureObject
+                                                    };
+                                                }
+                                                return updated;
+                                            }
                                             if (prev.length > 0 && prev[0]?.group) {
                                                 return [...prev, itemContainer];
                                             }

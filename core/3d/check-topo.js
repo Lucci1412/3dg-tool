@@ -416,6 +416,11 @@
 
         onProgress(100, `Hoàn thành quét 3D: Tìm thấy ${errors.length} lỗi.`);
         log(`3D Topo Check Completed: found ${errors.length} errors.`);
+        errors.cleanStats = {
+            totalPointsRemoved: totalPointsCleaned,
+            totalCleanedFeatures: cleanedGroupsCount,
+            totalDeletedFeatures: 0
+        };
         return errors;
     }
 

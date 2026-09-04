@@ -229,8 +229,12 @@
                 return;
             }
             try {
+                if (layer.getVisible && !layer.getVisible()) return;
                 const src = layer.getSource?.();
                 if (!src?.getFeatures) return;
+                const layerId = String(layer.get?.('id') || layer.get?.('name') || layer.get?.('title') || '').toLowerCase();
+                if (layerId.includes('topo') || layerId.includes('highlight') || layerId.includes('overlay') || layerId.includes('preview')) return;
+
                 for (const f of src.getFeatures()) {
                     if (seenFeatureObjects.has(f)) continue;
                     seenFeatureObjects.add(f);
@@ -240,6 +244,7 @@
 
                     const type = geom.getType();
                     if (type === 'LineString' || type === 'MultiLineString' || type === 'Polygon' || type === 'MultiPolygon') {
+                        const fId = (typeof f.getId === 'function' ? f.getId() : null) ?? f.get?.('id') ?? f.id ?? f._id ?? f.id_;
                         let uniqueId = (fId != null && fId !== '') ? String(fId) : ('feat_' + results.length);
                         if (seenFeatureIds.has(uniqueId)) {
                             uniqueId = `${uniqueId}_${results.length}`;
@@ -249,18 +254,23 @@
                         results.push({
                             feature: f,
                             id: uniqueId,
+                            rawId: (fId != null && fId !== '') ? String(fId) : null,
                             geometry: geom,
                             layer: layer,
                             source: src
                         });
                     }
                 }
-            } catch (e) { }
+            } catch (e) {
+                console.warn('[CheckTopo] Error collecting features from layer:', e);
+            }
         }
 
         try {
             map.getLayers().forEach(walk);
-        } catch (e) { }
+        } catch (e) {
+            console.warn('[CheckTopo] Error traversing map layers:', e);
+        }
 
         return results;
     }
@@ -335,7 +345,7 @@
         return { cleaned, removedCount, isDegenerate };
     }
 
-    function autoCleanDuplicateVerticesOnMap(cleanTol = 1e-5) {
+    function autoCleanDuplicateVerticesOnMap(cleanTol = 0.05) {
         const featureItems = collectAllFeatures();
         let totalCleanedFeatures = 0;
         let totalPointsRemoved = 0;
@@ -346,6 +356,10 @@
                 if (item.source && typeof item.source.removeFeature === 'function') {
                     item.source.removeFeature(item.feature);
                     totalDeletedFeatures++;
+                }
+                const targetId = item.rawId || item.id;
+                if (targetId && window.__topoRemoveFeatureFromReactState) {
+                    window.__topoRemoveFeatureFromReactState(targetId);
                 }
             } catch (e) { }
         }
@@ -376,6 +390,11 @@
                     if (item.source && typeof item.source.changed === 'function') {
                         item.source.changed();
                     }
+                    if (window.__topoSyncFeatureToReactState && item.feature) {
+                        try {
+                            window.__topoSyncFeatureToReactState(item.feature);
+                        } catch (e) { }
+                    }
                 }
             } else if (type === 'MultiLineString') {
                 const coords = geom.getCoordinates?.() || [];
@@ -403,6 +422,11 @@
                     if (item.source && typeof item.source.changed === 'function') {
                         item.source.changed();
                     }
+                    if (window.__topoSyncFeatureToReactState && item.feature) {
+                        try {
+                            window.__topoSyncFeatureToReactState(item.feature);
+                        } catch (e) { }
+                    }
                 }
             } else if (type === 'Polygon') {
                 const rings = geom.getCoordinates?.() || [];
@@ -421,6 +445,11 @@
                         totalPointsRemoved += removedCount;
                         if (item.source && typeof item.source.changed === 'function') {
                             item.source.changed();
+                        }
+                        if (window.__topoSyncFeatureToReactState && item.feature) {
+                            try {
+                                window.__topoSyncFeatureToReactState(item.feature);
+                            } catch (e) { }
                         }
                     }
                 }
@@ -453,6 +482,11 @@
                     if (item.source && typeof item.source.changed === 'function') {
                         item.source.changed();
                     }
+                    if (window.__topoSyncFeatureToReactState && item.feature) {
+                        try {
+                            window.__topoSyncFeatureToReactState(item.feature);
+                        } catch (e) { }
+                    }
                 }
             }
         });
@@ -461,7 +495,14 @@
             log(`⚡ Đã xóa ${totalDeletedFeatures} đối tượng suy biến (không đủ điểm phân biệt), loại bỏ ${totalPointsRemoved} điểm tọa độ trùng liên tiếp trên ${totalCleanedFeatures} đối tượng!`);
         }
 
-        return { cleanedFeatures: totalCleanedFeatures, pointsRemoved: totalPointsRemoved, deletedFeatures: totalDeletedFeatures };
+        return {
+            totalCleanedFeatures,
+            totalPointsRemoved,
+            totalDeletedFeatures,
+            cleanedFeatures: totalCleanedFeatures,
+            pointsRemoved: totalPointsRemoved,
+            deletedFeatures: totalDeletedFeatures
+        };
     }
 
     // ===== SAFE GRID BUILDER (adaptive cellSize + auto-retry coarser) =====
@@ -535,13 +576,16 @@
         const tolerance = options.tolerance !== undefined ? Number(options.tolerance) : 0.5;
         const tolSq = tolerance * tolerance;
 
-        // Dọn dẹp điểm trùng lặp vi sai số số học (1e-4m = 0.1mm), TUYỆT ĐỐI KHÔNG dùng tolerance quét (0.5m)
-        // để tránh làm mất / xóa các đoạn thẳng ngắn hoặc gãy khúc thực tế trên bản đồ.
-        const cleanEpsilon = 1e-4;
+        // Dọn dẹp điểm trùng lặp liên tiếp trên cùng 1 nét vẽ (dung sai an toàn 5cm = 0.05m)
+        const cleanTol = options.cleanTol !== undefined ? Number(options.cleanTol) : 0.05;
 
-        await report(1, 'Đang chuẩn bị dữ liệu kiểm tra topology...');
-        if (options.autoClean === true) {
-            autoCleanDuplicateVerticesOnMap(cleanEpsilon);
+        await report(1, 'Đang dọn dẹp đỉnh trùng lặp và đối tượng suy biến...');
+        let cleanStats = { totalCleanedFeatures: 0, totalPointsRemoved: 0, totalDeletedFeatures: 0 };
+        if (options.autoClean !== false) {
+            cleanStats = autoCleanDuplicateVerticesOnMap(cleanTol);
+            if (cleanStats.totalPointsRemoved > 0 || cleanStats.totalDeletedFeatures > 0) {
+                await report(2, `Đã dọn dẹp ${cleanStats.totalPointsRemoved} đỉnh trùng lặp (${cleanStats.totalCleanedFeatures} nét)...`);
+            }
         }
 
         await report(5, 'Đang thu thập đối tượng trên bản đồ...');
@@ -560,7 +604,7 @@
             let coords = geom.getCoordinates();
 
             if (type === 'LineString') {
-                const { cleaned, isDegenerate } = sanitizeLineStringCoords(coords, cleanEpsilon);
+                const { cleaned, isDegenerate } = sanitizeLineStringCoords(coords, cleanTol);
                 if (isDegenerate) continue;
                 coords = cleaned;
 
@@ -585,7 +629,7 @@
             } else if (type === 'MultiLineString') {
                 const cleanedLines = [];
                 for (const line of coords) {
-                    const { cleaned, isDegenerate } = sanitizeLineStringCoords(line, cleanEpsilon);
+                    const { cleaned, isDegenerate } = sanitizeLineStringCoords(line, cleanTol);
                     if (!isDegenerate) cleanedLines.push(cleaned);
                 }
                 if (cleanedLines.length === 0) continue;
@@ -613,7 +657,7 @@
                 }
             } else if (type === 'Polygon') {
                 if (!coords || coords.length === 0) continue;
-                const { cleaned: extCleaned, isDegenerate } = sanitizePolygonRingCoords(coords[0], cleanEpsilon);
+                const { cleaned: extCleaned, isDegenerate } = sanitizePolygonRingCoords(coords[0], cleanTol);
                 if (isDegenerate) continue;
                 coords = [extCleaned, ...coords.slice(1)];
 
@@ -638,7 +682,7 @@
                 const cleanedPolys = [];
                 for (const poly of coords) {
                     if (!poly || poly.length === 0) continue;
-                    const { cleaned: extCleaned, isDegenerate } = sanitizePolygonRingCoords(poly[0], cleanEpsilon);
+                    const { cleaned: extCleaned, isDegenerate } = sanitizePolygonRingCoords(poly[0], cleanTol);
                     if (!isDegenerate) cleanedPolys.push([extCleaned, ...poly.slice(1)]);
                 }
                 if (cleanedPolys.length === 0) continue;
@@ -800,17 +844,39 @@
         let globalSegId = 0;
 
         uniqueFeatureItems.forEach((item, featureIdx) => {
-            const coords = item.geometry.getCoordinates?.() || [];
-            featureCoordsList[featureIdx] = coords;
-            if (!coords || coords.length < 2) return;
-            for (let s = 0; s < coords.length - 1; s++) {
-                allDupSegments.push({
-                    gid: globalSegId++,
-                    p1: coords[s],
-                    p2: coords[s + 1],
-                    featureIdx,
-                    segIdx: s
-                });
+            const geom = item.geometry;
+            const type = geom?.getType?.();
+            const rawCoords = geom?.getCoordinates?.() || [];
+
+            let lines = [];
+            if (type === 'LineString') {
+                lines = [rawCoords];
+                featureCoordsList[featureIdx] = rawCoords;
+            } else if (type === 'MultiLineString') {
+                lines = rawCoords;
+                featureCoordsList[featureIdx] = rawCoords[0] || [];
+            } else if (type === 'Polygon') {
+                lines = rawCoords;
+                featureCoordsList[featureIdx] = rawCoords[0] || [];
+            } else if (type === 'MultiPolygon') {
+                lines = rawCoords.flatMap(p => p || []);
+                featureCoordsList[featureIdx] = (rawCoords[0] && rawCoords[0][0]) || [];
+            } else {
+                lines = [rawCoords];
+                featureCoordsList[featureIdx] = rawCoords;
+            }
+
+            for (const line of lines) {
+                if (!line || line.length < 2) continue;
+                for (let s = 0; s < line.length - 1; s++) {
+                    allDupSegments.push({
+                        gid: globalSegId++,
+                        p1: line[s],
+                        p2: line[s + 1],
+                        featureIdx,
+                        segIdx: s
+                    });
+                }
             }
         });
 
@@ -993,6 +1059,7 @@
         const endTime = performance.now();
         log(`Topology check completed in ${(endTime - startTime).toFixed(1)}ms. Found ${errors.length} errors.`);
 
+        errors.cleanStats = cleanStats;
         return errors;
     }
 
